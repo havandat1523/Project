@@ -11,6 +11,10 @@ if os.path.exists(env_path):
                 key, val = line.split("=", 1)
                 env_vars[key.strip()] = val.strip()
 
+# Set DISPLAY environment variable for X11 GUI if not already set (e.g. over SSH remote)
+if "DISPLAY" not in os.environ:
+    os.environ["DISPLAY"] = env_vars.get("DISPLAY", os.getenv("DISPLAY", ":0"))
+
 class Config:
     VEHICLE_ID = env_vars.get("VEHICLE_ID", os.getenv("VEHICLE_ID", "29B-123.45"))
     CHASSIS_NUMBER = env_vars.get("CHASSIS_NUMBER", os.getenv("CHASSIS_NUMBER", "RE123456789"))

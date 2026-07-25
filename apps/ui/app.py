@@ -215,7 +215,9 @@ class BusMonitoringApp(QMainWindow):
     @pyqtSlot(QImage)
     def update_video_frame(self, image):
         pixmap = QPixmap.fromImage(image)
-        self.video_label.setPixmap(pixmap.scaled(self.video_label.width(), self.video_label.height(), Qt.KeepAspectRatio))
+        target_w = max(self.video_label.width(), 320)
+        target_h = max(self.video_label.height(), 240)
+        self.video_label.setPixmap(pixmap.scaled(target_w, target_h, Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
     @pyqtSlot(float, float, float)
     def on_gps_received(self, lat, lon, speed):

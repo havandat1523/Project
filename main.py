@@ -20,40 +20,34 @@ def main():
     logger.info("==============================================")
     logger.info("Starting School Bus Gateway Application...")
     logger.info("VEHICLE ID: %s", config.VEHICLE_ID)
+    logger.info("DISPLAY: %s", os.environ.get("DISPLAY", "Not Set"))
     logger.info("==============================================")
 
-    # 1. Initialize SQLite Database
+    # 1. Initialize PyQt5 GUI Application first (Qt core requirement)
+    app = QApplication(sys.argv)
+
+    # 2. Initialize SQLite Database
     init_db()
 
-    # 2. Instantiate core services
+    # 3. Instantiate core services
     auth_service = AuthService()
     seat_debouncer = SeatDebouncer()
     
-    # 3. Instantiate thread components
+    # 4. Instantiate thread components
     camera_service = CameraService()
     uart_thread = UARTThread()
     
-    # 4. Instantiate MQTT client
-    # The callback_handler will be set to the UI application later
+    # 5. Instantiate MQTT client
     mqtt_client = MQTTClient()
 
-    # 5. Instantiate managers & logic layers
+    # 6. Instantiate managers & logic layers
     session_manager = SessionManager(auth_service, uart_thread, mqtt_client)
     boarding_logic = BoardingLogic(uart_thread, mqtt_client)
     
-    # 6. Instantiate presence check thread
+    # 7. Instantiate presence check thread
     presence_thread = PresenceThread(auth_service, camera_service, uart_thread, mqtt_client)
 
-    # 7. Start background threads
-    camera_service.start()
-    uart_thread.start()
-    mqtt_client.start()
-    presence_thread.start()
-
-    # 8. Start PyQt5 GUI Application
-    app = QApplication(sys.argv)
-    
-    # Create main UI window
+    # 8. Create main UI window & connect signals
     ui_app = BusMonitoringApp(
         uart_thread=uart_thread,
         mqtt_client=mqtt_client,
@@ -68,11 +62,16 @@ def main():
     mqtt_client.callback_handler = ui_app
     
     # Connect seat state updates to the presence monitor thread
-    # We update the seats pointer inside presence thread when seats signal fires
     uart_thread.seats_received.connect(presence_thread.set_seats)
 
     # Show UI window
     ui_app.show()
+
+    # 9. Start background threads AFTER QApplication, UI, and Signals are connected
+    camera_service.start()
+    uart_thread.start()
+    mqtt_client.start()
+    presence_thread.start()
 
     # Execute Qt main event loop
     logger.info("UI Window launched. Entering Qt main loop.")
