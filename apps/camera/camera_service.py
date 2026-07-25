@@ -34,21 +34,55 @@ class CameraService(QThread):
         self.stream_port = None
         self.is_streaming = False
 
+    def try_open_camera(self):
+        """
+        Attempts to open camera with V4L2 backend to avoid OpenCV GStreamer memory allocation bugs on Raspberry Pi.
+        Tests if a frame can actually be read.
+        """
+        candidates = [
+            (0, cv2.CAP_V4L2),
+            (1, cv2.CAP_V4L2),
+            (0, cv2.CAP_ANY),
+            (1, cv2.CAP_ANY)
+        ]
+        
+        for idx, api in candidates:
+            try:
+                cap = cv2.VideoCapture(idx, api)
+                if cap and cap.isOpened():
+                    # Test reading a frame to verify it actually yields pixels
+                    ret, frame = cap.read()
+                    if ret and frame is not None:
+                        logger.info("Successfully opened camera at index %d (API: %s)", idx, "V4L2" if api == cv2.CAP_V4L2 else "ANY")
+                        return cap
+                    cap.release()
+            except Exception as e:
+                logger.debug("Failed to open camera index %d with API %s: %s", idx, api, e)
+                
+        return None
+
     def run(self):
         self.running = True
-        self.cap = cv2.VideoCapture(0)
+        self.cap = self.try_open_camera()
         
-        if not self.cap.isOpened():
-            logger.error("Could not open camera. Emitting dummy frames.")
+        if not self.cap:
+            logger.error("Could not open hardware camera. Emitting SIMULATED video frames.")
             self.run_simulation()
             return
             
         logger.info("Camera stream started.")
+        failed_count = 0
         while self.running:
             ret, frame = self.cap.read()
-            if not ret:
+            if not ret or frame is None:
+                failed_count += 1
+                if failed_count > 30: # ~1 second of consecutive read failures
+                    logger.error("Camera frame read failed repeatedly. Switching to SIMULATION mode.")
+                    break
                 time.sleep(0.03)
                 continue
+                
+            failed_count = 0
                 
             with self.lock:
                 self.latest_frame = frame.copy()
@@ -73,9 +107,15 @@ class CameraService(QThread):
             # Limit to ~30 FPS
             time.sleep(0.03)
             
-        self.cap.release()
+        if self.cap:
+            self.cap.release()
+            self.cap = None
         self.stop_streaming()
-        logger.info("Camera stream stopped.")
+
+        if self.running:
+            self.run_simulation()
+        else:
+            logger.info("Camera stream stopped.")
 
     def run_simulation(self):
         """
