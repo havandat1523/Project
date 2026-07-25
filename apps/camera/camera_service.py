@@ -16,6 +16,14 @@ except ImportError:
     FACE_REC_AVAILABLE = False
     logger.warning("face_recognition library not found. Biometric face encoding will be SIMULATED.")
 
+try:
+    from picamera2 import Picamera2
+    PICAMERA2_AVAILABLE = True
+    logger.info("Picamera2 library loaded successfully for Raspberry Pi CSI Camera")
+except ImportError:
+    PICAMERA2_AVAILABLE = False
+    logger.info("Picamera2 library not found. Will use OpenCV / libcamerasrc pipeline.")
+
 class CameraService(QThread):
     # Emits frame to UI for streaming
     frame_received = pyqtSignal(QImage)
@@ -24,6 +32,7 @@ class CameraService(QThread):
         super().__init__()
         self.running = False
         self.cap = None
+        self.picam2 = None
         self.latest_frame = None
         import threading
         self.lock = threading.Lock()
@@ -36,45 +45,67 @@ class CameraService(QThread):
 
     def try_open_camera(self):
         """
-        Attempts to open camera with V4L2 backend to avoid OpenCV GStreamer memory allocation bugs on Raspberry Pi.
-        Tests if a frame can actually be read.
+        Attempts to open camera with libcamerasrc GStreamer pipeline (for CSI camera), V4L2, and standard index.
         """
         candidates = [
+            ("libcamerasrc ! video/x-raw, width=640, height=480 ! videoconvert ! videoscale ! video/x-raw, format=BGR ! appsink drop=true", cv2.CAP_GSTREAMER),
             (0, cv2.CAP_V4L2),
             (1, cv2.CAP_V4L2),
             (0, cv2.CAP_ANY),
             (1, cv2.CAP_ANY)
         ]
         
-        for idx, api in candidates:
+        for source, api in candidates:
             try:
-                cap = cv2.VideoCapture(idx, api)
+                cap = cv2.VideoCapture(source, api)
                 if cap and cap.isOpened():
                     # Test reading a frame to verify it actually yields pixels
                     ret, frame = cap.read()
-                    if ret and frame is not None:
-                        logger.info("Successfully opened camera at index %d (API: %s)", idx, "V4L2" if api == cv2.CAP_V4L2 else "ANY")
+                    if ret and frame is not None and frame.size > 0:
+                        logger.info("Successfully opened camera with source '%s' (API: %s)", str(source)[:40], api)
                         return cap
                     cap.release()
             except Exception as e:
-                logger.debug("Failed to open camera index %d with API %s: %s", idx, api, e)
+                logger.debug("Failed to open camera source '%s': %s", source, e)
                 
         return None
 
     def run(self):
         self.running = True
+
+        # 1. Try Picamera2 first (Official Raspberry Pi CSI Ribbon Camera library)
+        if PICAMERA2_AVAILABLE:
+            try:
+                logger.info("Attempting to initialize Picamera2 (Pi CSI Camera)...")
+                self.picam2 = Picamera2()
+                config = self.picam2.create_video_configuration(main={"size": (640, 480), "format": "BGR888"})
+                self.picam2.configure(config)
+                self.picam2.start()
+                logger.info("Picamera2 started successfully!")
+                self.run_picamera2()
+                return
+            except Exception as e:
+                logger.warning("Failed to start Picamera2: %s. Trying OpenCV capture...", e)
+                if hasattr(self, "picam2") and self.picam2:
+                    try:
+                        self.picam2.stop()
+                        self.picam2.close()
+                    except Exception:
+                        pass
+                self.picam2 = None
+
+        # 2. Try OpenCV
         self.cap = self.try_open_camera()
-        
         if not self.cap:
             logger.error("Could not open hardware camera. Emitting SIMULATED video frames.")
             self.run_simulation()
             return
             
-        logger.info("Camera stream started.")
+        logger.info("Camera stream started via OpenCV.")
         failed_count = 0
         while self.running:
             ret, frame = self.cap.read()
-            if not ret or frame is None:
+            if not ret or frame is None or frame.size == 0:
                 failed_count += 1
                 if failed_count > 30: # ~1 second of consecutive read failures
                     logger.error("Camera frame read failed repeatedly. Switching to SIMULATION mode.")
@@ -90,7 +121,6 @@ class CameraService(QThread):
             # If streaming is enabled, write frame to FFmpeg subprocess
             if self.is_streaming and self.streaming_process:
                 try:
-                    # Resize to 640x480 for streaming consistency
                     stream_frame = cv2.resize(frame, (640, 480))
                     self.streaming_process.stdin.write(stream_frame.tobytes())
                 except Exception as e:
@@ -116,6 +146,59 @@ class CameraService(QThread):
             self.run_simulation()
         else:
             logger.info("Camera stream stopped.")
+
+    def run_picamera2(self):
+        failed_count = 0
+        while self.running:
+            try:
+                # Capture frame array directly from Pi CSI Camera
+                frame = self.picam2.capture_array()
+                if frame is None or frame.size == 0:
+                    failed_count += 1
+                    if failed_count > 30:
+                        logger.error("Picamera2 frame read failed repeatedly. Switching to SIMULATION mode.")
+                        break
+                    time.sleep(0.03)
+                    continue
+
+                failed_count = 0
+                with self.lock:
+                    self.latest_frame = frame.copy()
+
+                if self.is_streaming and self.streaming_process:
+                    try:
+                        stream_frame = cv2.resize(frame, (640, 480))
+                        self.streaming_process.stdin.write(stream_frame.tobytes())
+                    except Exception as e:
+                        logger.error("Error writing frame to stream process: %s", e)
+                        self.stop_streaming()
+
+                rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                h, w, ch = rgb_image.shape
+                bytes_per_line = ch * w
+                q_img = QImage(rgb_image.data, w, h, bytes_per_line, QImage.Format_RGB888)
+                self.frame_received.emit(q_img.copy())
+
+                time.sleep(0.03)
+            except Exception as e:
+                logger.error("Error capturing frame from Picamera2: %s", e)
+                failed_count += 1
+                if failed_count > 30:
+                    break
+                time.sleep(0.03)
+
+        try:
+            self.picam2.stop()
+            self.picam2.close()
+        except Exception:
+            pass
+        self.picam2 = None
+        self.stop_streaming()
+
+        if self.running:
+            self.run_simulation()
+        else:
+            logger.info("Picamera2 stream stopped.")
 
     def run_simulation(self):
         """
@@ -241,4 +324,11 @@ class CameraService(QThread):
 
     def stop(self):
         self.running = False
+        if hasattr(self, "picam2") and self.picam2:
+            try:
+                self.picam2.stop()
+                self.picam2.close()
+            except Exception:
+                pass
+            self.picam2 = None
         self.wait()
