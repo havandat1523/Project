@@ -350,3 +350,14 @@ class CameraService(QThread):
                 pass
             self.picam2 = None
         self.wait()
+
+class FaceVectorWorker(QThread):
+    vector_ready = pyqtSignal(object)  # Emits vector list or None
+
+    def __init__(self, camera_service):
+        super().__init__()
+        self.camera_service = camera_service
+
+    def run(self):
+        vector = self.camera_service.capture_face_vector()
+        self.vector_ready.emit(vector)

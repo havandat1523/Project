@@ -8,6 +8,8 @@ from PyQt5.QtGui import QImage, QPixmap, QFont
 from config import config
 from services.logger import get_logger
 
+from apps.camera.camera_service import FaceVectorWorker
+
 logger = get_logger("UI")
 
 class BusMonitoringApp(QMainWindow):
@@ -301,10 +303,20 @@ class BusMonitoringApp(QMainWindow):
         self.log(f"Chuyển giai đoạn tuyến: {selected_phase}")
 
     def driver_login_click(self):
-        self.log("Đang lấy đặc trưng khuôn mặt tài xế...")
-        vector = self.camera.capture_face_vector()
+        self.log("Đang lấy đặc trưng khuôn mặt tài xế (vui lòng nhìn vào camera)...")
+        self.login_btn.setEnabled(False)
+        self.login_btn.setText("ĐANG QUÉT KHUÔN MẶT...")
+        
+        self.login_face_worker = FaceVectorWorker(self.camera)
+        self.login_face_worker.vector_ready.connect(self.on_login_face_captured)
+        self.login_face_worker.start()
+
+    def on_login_face_captured(self, vector):
+        self.login_btn.setText("TÀI XẾ ĐĂNG NHẬP")
+        self.login_btn.setEnabled(True)
+        
         if vector is None:
-            QMessageBox.critical(self, "Lỗi đăng nhập", "Không phát hiện khuôn mặt tài xế!")
+            QMessageBox.critical(self, "Lỗi đăng nhập", "Không phát hiện khuôn mặt tài xế! Vui lòng căn chỉnh lại khuôn mặt trước camera.")
             return
             
         # Try offline authentication first as fallback
@@ -318,7 +330,6 @@ class BusMonitoringApp(QMainWindow):
         # Send online auth request (type 1)
         if self.mqtt.is_connected:
             self.log("Sending online Driver verification request...")
-            # We can save temporarily for callback match
             self._login_vector = vector
             self.mqtt.publish_message(1, {"face_vector": vector}, priority=1)
         else:
@@ -330,16 +341,20 @@ class BusMonitoringApp(QMainWindow):
             QMessageBox.warning(self, "Không thể đăng xuất", reason)
             return
             
-        # Perform face check to confirm logout
         self.log("Xác thực khuôn mặt trước khi đăng xuất...")
-        vector = self.camera.capture_face_vector()
+        self.logout_btn.setEnabled(False)
+        
+        self.logout_face_worker = FaceVectorWorker(self.camera)
+        self.logout_face_worker.vector_ready.connect(self.on_logout_face_captured)
+        self.logout_face_worker.start()
+
+    def on_logout_face_captured(self, vector):
+        self.logout_btn.setEnabled(True)
         if vector is None:
             QMessageBox.critical(self, "Lỗi xác thực", "Không phát hiện khuôn mặt tài xế!")
             return
             
-        # Confirm matching
         if self.auth.verify_driver_presence(vector):
-            # Send logout request (type 3)
             self.mqtt.publish_message(3, {}, priority=1)
             self.session.process_driver_logout()
             self.update_status_labels()
