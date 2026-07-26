@@ -3,7 +3,7 @@ import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QLabel, QPushButton, QGridLayout, 
                              QMessageBox, QFrame, QTextEdit, QComboBox)
-from PyQt5.QtCore import pyqtSlot, Qt, QTimer
+from PyQt5.QtCore import pyqtSlot, pyqtSignal, Qt, QTimer
 from PyQt5.QtGui import QImage, QPixmap, QFont
 from config import config
 from services.logger import get_logger
