@@ -8,13 +8,19 @@ from services.logger import get_logger
 
 logger = get_logger("Camera")
 
-try:
-    import face_recognition
-    FACE_REC_AVAILABLE = True
-    logger.info("face_recognition library loaded successfully")
-except ImportError:
-    FACE_REC_AVAILABLE = False
-    logger.warning("face_recognition library not found. Biometric face encoding will be SIMULATED.")
+FACE_REC_AVAILABLE = None  # Lazy loading flag
+
+def is_face_rec_available():
+    global FACE_REC_AVAILABLE
+    if FACE_REC_AVAILABLE is None:
+        try:
+            import face_recognition
+            FACE_REC_AVAILABLE = True
+            logger.info("face_recognition library loaded successfully")
+        except ImportError:
+            FACE_REC_AVAILABLE = False
+            logger.warning("face_recognition library not found. Biometric face encoding will be SIMULATED.")
+    return FACE_REC_AVAILABLE
 
 try:
     from picamera2 import Picamera2
@@ -304,12 +310,13 @@ class CameraService(QThread):
                 return None
             frame = self.latest_frame.copy()
             
-        if not FACE_REC_AVAILABLE:
+        if not is_face_rec_available():
             # Simulate face vector: list of 128 floating points
             logger.info("Simulating 128-dimensional face encoding vector...")
             time.sleep(0.5) # Simulate encoding delay
             return (np.random.rand(128) * 2 - 1).tolist()
             
+        import face_recognition
         # Convert BGR to RGB
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
