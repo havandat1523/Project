@@ -13,6 +13,13 @@ from apps.camera.camera_service import FaceVectorWorker
 logger = get_logger("UI")
 
 class BusMonitoringApp(QMainWindow):
+    # Signals for thread-safe UI updates from MQTT callbacks
+    driver_login_ack_signal = pyqtSignal(dict)
+    driver_logout_ack_signal = pyqtSignal(dict)
+    attendant_login_ack_signal = pyqtSignal(dict)
+    attendant_logout_ack_signal = pyqtSignal(dict)
+    server_command_signal = pyqtSignal(dict)
+
     def __init__(self, uart_thread, mqtt_client, camera_service, auth_service, session_manager, boarding_logic, seat_debouncer):
         super().__init__()
         self.uart = uart_thread
@@ -214,6 +221,13 @@ class BusMonitoringApp(QMainWindow):
         self.uart.sos_received.connect(self.on_sos_received)
         self.uart.dht11_received.connect(self.on_dht11_received)
 
+        # Connect MQTT response signals to main thread handlers
+        self.driver_login_ack_signal.connect(self._handle_driver_login_ack)
+        self.driver_logout_ack_signal.connect(self._handle_driver_logout_ack)
+        self.attendant_login_ack_signal.connect(self._handle_attendant_login_ack)
+        self.attendant_logout_ack_signal.connect(self._handle_attendant_logout_ack)
+        self.server_command_signal.connect(self._handle_server_command)
+
     @pyqtSlot(QImage)
     def update_video_frame(self, image):
         pixmap = QPixmap.fromImage(image)
@@ -394,9 +408,25 @@ class BusMonitoringApp(QMainWindow):
         else:
             self.attendant_label.setText("Phụ xe: Chưa đăng nhập")
 
-    # Callbacks triggered by MQTT response messages
+    # Callbacks triggered by MQTT response messages (called from MQTT Background Thread)
     def on_driver_login_ack(self, data):
-        # {"driver_id": "GV0012", "result": 1, "full_name": "Nguyễn Văn A", "face_vector": [...]}
+        self.driver_login_ack_signal.emit(data)
+
+    def on_driver_logout_ack(self, data):
+        self.driver_logout_ack_signal.emit(data)
+
+    def on_attendant_login_ack(self, data):
+        self.attendant_login_ack_signal.emit(data)
+
+    def on_attendant_logout_ack(self, data):
+        self.attendant_logout_ack_signal.emit(data)
+
+    def on_server_command(self, data):
+        self.server_command_signal.emit(data)
+
+    # Main GUI Thread handlers for MQTT Signals
+    @pyqtSlot(dict)
+    def _handle_driver_login_ack(self, data):
         result = data.get("result", 0)
         if result == 1:
             driver_id = data.get("driver_id")
@@ -411,15 +441,15 @@ class BusMonitoringApp(QMainWindow):
             self.update_status_labels()
         else:
             self.log("Màn hình đăng nhập: Tài xế bị từ chối từ Server!")
-            # Play 01/002 (driver login fail)
             self.uart.send_frame(0x01, 0x02)
-            QMessageBox.critical(self, "Lỗi đăng nhập", "Tài khoản tài xế không hợp lệ!")
+            QMessageBox.critical(self, "Lỗi đăng nhập", "Tài khoản tài xế không hợp lệ hoặc khuôn mặt không khớp!")
 
-    def on_driver_logout_ack(self, data):
+    @pyqtSlot(dict)
+    def _handle_driver_logout_ack(self, data):
         self.log("Server confirmed Driver check-out.")
 
-    def on_attendant_login_ack(self, data):
-        # {"attendant_id": "PX0003", "result": 1, "full_name": "Trần Thị B", "rfid_code": "..."}
+    @pyqtSlot(dict)
+    def _handle_attendant_login_ack(self, data):
         result = data.get("result", 0)
         if result == 1:
             att_id = data.get("attendant_id")
@@ -428,20 +458,19 @@ class BusMonitoringApp(QMainWindow):
             self.log(f"Phụ xe đăng nhập thành công: {name}")
             
             self.session.process_attendant_login(att_id, name)
-            # Store rfid temporarily inside active profiles
             self.auth.active_attendant["rfid_code"] = rfid
             self.update_status_labels()
         else:
             self.log("Đăng nhập phụ xe thất bại!")
-            # Play 03/002 (attendant login fail)
             self.uart.send_frame(0x03, 0x02)
 
-    def on_attendant_logout_ack(self, data):
+    @pyqtSlot(dict)
+    def _handle_attendant_logout_ack(self, data):
         self.session.process_attendant_logout()
         self.update_status_labels()
 
-    def on_server_command(self, data):
-        # Process generic server triggers and streaming commands
+    @pyqtSlot(dict)
+    def _handle_server_command(self, data):
         cmd = data.get("cmd")
         action = data.get("action")
         
