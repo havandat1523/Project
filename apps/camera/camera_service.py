@@ -51,7 +51,7 @@ class CameraService(QThread):
 
     def try_open_camera(self):
         """
-        Attempts to open camera with OpenCV V4L2 / default index.
+        Attempts to open camera with OpenCV V4L2 / default index at 640x480 resolution.
         Tests if a frame can actually be read.
         """
         candidates = [
@@ -65,7 +65,10 @@ class CameraService(QThread):
             try:
                 cap = cv2.VideoCapture(source, api)
                 if cap and cap.isOpened():
-                    # Test reading a frame to verify it actually yields pixels
+                    # Explicitly set 640x480 resolution BEFORE reading to prevent 2560x1600 buffer allocation failure
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                    
                     ret, frame = cap.read()
                     if ret and frame is not None and frame.size > 0:
                         logger.info("Successfully opened camera at index %d (API: %s)", source, api)
@@ -83,14 +86,7 @@ class CameraService(QThread):
         ld_preload = os.environ.get("LD_PRELOAD", "")
         is_libcamerify = "libcamera" in ld_preload or "v4l2" in ld_preload
 
-        # 1. Try OpenCV capture first (works for USB webcams AND when wrapped with libcamerify)
-        self.cap = self.try_open_camera()
-        if self.cap:
-            logger.info("Camera stream started via OpenCV (libcamerify=%s).", is_libcamerify)
-            self.run_opencv()
-            return
-
-        # 2. If OpenCV failed and NOT under libcamerify, try Picamera2 (for Pi CSI Camera)
+        # 1. If Picamera2 is available AND not running under libcamerify, use Picamera2 first (Native Pi CSI Camera)
         if PICAMERA2_AVAILABLE and not is_libcamerify:
             try:
                 logger.info("Attempting to initialize Picamera2 (Pi CSI Camera)...")
@@ -102,7 +98,7 @@ class CameraService(QThread):
                 self.run_picamera2()
                 return
             except Exception as e:
-                logger.warning("Failed to start Picamera2: %s", e)
+                logger.warning("Failed to start Picamera2: %s. Trying OpenCV capture...", e)
                 if hasattr(self, "picam2") and self.picam2:
                     try:
                         self.picam2.stop()
@@ -110,6 +106,13 @@ class CameraService(QThread):
                     except Exception:
                         pass
                 self.picam2 = None
+
+        # 2. Try OpenCV capture (for USB webcams OR when running under libcamerify)
+        self.cap = self.try_open_camera()
+        if self.cap:
+            logger.info("Camera stream started via OpenCV (libcamerify=%s).", is_libcamerify)
+            self.run_opencv()
+            return
 
         # 3. If all hardware camera methods failed, fall back to simulation
         logger.error("Could not open hardware camera. Emitting SIMULATED video frames.")
