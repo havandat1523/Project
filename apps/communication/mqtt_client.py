@@ -167,7 +167,6 @@ class MQTTClient:
             
         try:
             info = self.client.publish(full_topic, json.dumps(envelope), qos=qos)
-            info.wait_for_publish() # Wait for ACK
             logger.info("Published message type %d to %s", msg_type, full_topic)
             return True
         except Exception as e:

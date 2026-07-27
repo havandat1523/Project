@@ -328,8 +328,8 @@ class BusMonitoringApp(QMainWindow):
         header_layout.addStretch()
         
         # Right: 4 Status Indicators + Red SOS Button
-        self.badge_gnss = QLabel("GNSS: ACTIVE")
-        self.badge_gnss.setStyleSheet("background-color: #ffffff; color: #16a34a; border: 1px solid #93c5fd; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
+        self.badge_gnss = QLabel("GNSS: OFF")
+        self.badge_gnss.setStyleSheet("background-color: #ffffff; color: #dc2626; border: 1px solid #fca5a5; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
         
         self.badge_cam = QLabel("📷 READY")
         self.badge_cam.setStyleSheet("background-color: #ffffff; color: #16a34a; border: 1px solid #93c5fd; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
@@ -712,11 +712,23 @@ class BusMonitoringApp(QMainWindow):
         self.vehicle_status_ack_signal.connect(self._handle_vehicle_status_ack)
         self.student_scan_ack_signal.connect(self._handle_student_scan_ack)
         
+        self.camera.frame_received.connect(self.update_camera_frame)
         self.uart.seats_received.connect(self.on_seats_received)
         self.uart.rfid_received.connect(self.on_rfid_received)
         self.uart.sos_received.connect(self.on_sos_received)
         self.uart.dht11_received.connect(self.on_dht11_received)
         self.uart.gps_received.connect(self.on_gps_received)
+
+    @pyqtSlot(QImage)
+    def update_camera_frame(self, q_img):
+        if hasattr(self, "video_label") and self.video_label:
+            pix = QPixmap.fromImage(q_img).scaled(
+                self.video_label.width(),
+                self.video_label.height(),
+                Qt.KeepAspectRatioByExpanding,
+                Qt.SmoothTransformation
+            )
+            self.video_label.setPixmap(pix)
 
     @pyqtSlot(dict)
     def on_seats_received(self, seats_dict):
@@ -757,6 +769,8 @@ class BusMonitoringApp(QMainWindow):
     def on_gps_received(self, lat, lon, speed):
         self.current_speed = speed
         self.speed_lbl.setText(f"{speed:.1f} Km/h")
+        self.badge_gnss.setText("GNSS: ACTIVE")
+        self.badge_gnss.setStyleSheet("background-color: #ffffff; color: #16a34a; border: 1px solid #93c5fd; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
         self.boarding.update_gps(lat, lon, speed)
         if hasattr(self, "map_view") and WEB_ENGINE_AVAILABLE:
             self.map_view.page().runJavaScript(f"updateMapLocation({lat:.6f}, {lon:.6f}, {speed:.1f});")
