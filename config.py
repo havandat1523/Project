@@ -16,6 +16,7 @@ if "DISPLAY" not in os.environ:
     os.environ["DISPLAY"] = env_vars.get("DISPLAY", os.getenv("DISPLAY", ":0"))
 
 class Config:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     VEHICLE_ID = env_vars.get("VEHICLE_ID", os.getenv("VEHICLE_ID", "29B-123.45"))
     CHASSIS_NUMBER = env_vars.get("CHASSIS_NUMBER", os.getenv("CHASSIS_NUMBER", "RE123456789"))
     MQTT_BROKER_HOST = env_vars.get("MQTT_BROKER_HOST", os.getenv("MQTT_BROKER_HOST", "broker.hivemq.com"))
