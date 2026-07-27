@@ -2,19 +2,7 @@
 stm32_sim.py
 -------------
 Công cụ mô phỏng phần cứng STM32 Master độc lập cho Raspberry Pi.
-Chạy độc lập bằng lệnh:
-    python stm32_sim.py [PORT] [BAUDRATE]
-
-Cung cấp giao diện dòng lệnh interactive CMD> để giả lập:
-  - run_system                                    (CHỈ CHẠY ĐƯỢC KHI TÀI XẾ ĐÃ ĐĂNG NHẬP THÀNH CÔNG TRÊN UI)
-  - stop_system                                   (Dừng chế độ mô phỏng tự động)
-  - rfid <MÃ_THẺ>                                 (VD: rfid ABX12SSDX hoặc rfid 04A3F1B2)
-  - seat <SỐ_GHẾ_1_16> <0|1>                      (VD: seat 3 1)
-  - gnss <active|degrade|off> [lat] [lon] [speed] (VD: gnss active 21.0021 105.8462 35)
-  - sos                                           (Nhấn nút khẩn cấp)
-  - dht <nhiệt_độ> <độ_ẩm>                        (VD: dht 29.5 65.0)
-  - status                                        (Xem trạng thái mô phỏng & tài xế hiện tại)
-  - help / exit
+Giao diện TUI Cố định 3 phần (ALL log / CMD> / Bảng lệnh) không nảy màn hình.
 """
 
 import sys
@@ -22,6 +10,7 @@ import os
 import json
 import time
 import threading
+import collections
 import serial
 
 try:
@@ -30,30 +19,30 @@ try:
 except ImportError:
     MYSQL_AVAILABLE = False
 
-# Default Port / Baudrate (configurable via argv or environment)
 PORT = sys.argv[1] if len(sys.argv) > 1 else os.getenv("UART_SIM_PORT", "COM2" if os.name == "nt" else "/tmp/ttyVIRTUAL_PI")
 BAUDRATE = int(sys.argv[2]) if len(sys.argv) > 2 else 115200
 
-# Current simulation state
+# State variables
 seat_states = {i: 0 for i in range(1, 17)}
-gnss_state = "active"
+gnss_state = "off"
 current_lat = 21.0021
 current_lon = 105.8462
 current_speed = 0.0
 
-# Session State tracking (Updated when Pi sends UART frames down to Master)
 driver_logged_in = False
 active_driver_id = ""
 
 auto_sim_running = False
 auto_sim_thread = None
 
-# Base path for Map files
+# ANSI Fixed Log Buffer
+log_history = collections.deque(maxlen=7)
+ui_lock = threading.Lock()
+
 MAP_DIR = r"C:\Users\Admin\OneDrive\Desktop\DO_AN\Map"
 if not os.path.exists(MAP_DIR):
     MAP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "Map"))
 
-# MySQL Connection config
 DB_CONFIG = {
     "host": "localhost",
     "user": "root",
@@ -61,6 +50,47 @@ DB_CONFIG = {
     "database": "schoolbus",
     "charset": "utf8mb4"
 }
+
+def add_log(msg: str):
+    with ui_lock:
+        timestamp = time.strftime("%H:%M:%S")
+        log_history.append(f"[{timestamp}] {msg}")
+        render_logs()
+
+def draw_static_screen():
+    # ANSI escape to clear screen and set up fixed 3-pane TUI layout matching user image
+    sys.stdout.write("\033[2J\033[H")
+    sys.stdout.write("================================================================================\n")
+    sys.stdout.write("                                    ALL log                                     \n")
+    sys.stdout.write("================================================================================\n")
+    for _ in range(7):
+        sys.stdout.write("\n")
+    sys.stdout.write("--------------------------------------------------------------------------------\n")
+    sys.stdout.write("CMD> \n")
+    sys.stdout.write("--------------------------------------------------------------------------------\n")
+    sys.stdout.write("run_system - TỰ ĐỘNG Mô phỏng xe chạy & đón học sinh (YÊU CẦU ĐÃ LOGIN)\n")
+    sys.stdout.write("stop_system - Dừng chế độ mô phỏng tự động\n")
+    sys.stdout.write("rfid <MÃ_THẺ> - Gửi mã thẻ RFID quẹt (VD: rfid ABX12SSDX)\n")
+    sys.stdout.write("seat <SỐ_GHẾ_1_16> <0|1> - Đặt trạng thái ghế (VD: seat 3 1)\n")
+    sys.stdout.write("gnss <active|degrade|off> [lat] [lon] [spd] - Đặt trạng thái GNSS\n")
+    sys.stdout.write("sos - Giả lập nhấn nút SOS khẩn cấp\n")
+    sys.stdout.write("dht <nhiệt_độ> <độ_ẩm> - Gửi thông số nhiệt độ/độ ẩm (VD: dht 28.5 65.0)\n")
+    sys.stdout.write("status - Hiển thị trạng thái mô phỏng & tài xế hiện tại\n")
+    sys.stdout.write("help / exit\n")
+    sys.stdout.write("================================================================================\n")
+    sys.stdout.flush()
+
+def render_logs():
+    # Saves cursor, renders top ALL LOG box (lines 4 to 10), restores cursor to CMD> line (line 12)
+    sys.stdout.write("\033[s") # Save cursor
+    logs_list = list(log_history)
+    for idx in range(7):
+        row = 4 + idx
+        sys.stdout.write(f"\033[{row};1H\033[K") # Move to row, clear line
+        if idx < len(logs_list):
+            sys.stdout.write(logs_list[idx][:78])
+    sys.stdout.write("\033[12;6H\033[K") # Return cursor to CMD> input line
+    sys.stdout.flush()
 
 def fetch_stops_from_db():
     default_stops = [
@@ -72,10 +102,7 @@ def fetch_stops_from_db():
         {"file": "5.geojson", "student_name": "Vu Van H", "rfid": "5A2B3C4D", "seat": 8, "address": "FLC Star Tower, Le Trong Tan"},
         {"file": "6.geojson", "student_name": "Truong Hoc", "rfid": None, "seat": None, "address": "Truong hoc"}
     ]
-    
-    if not MYSQL_AVAILABLE:
-        return default_stops
-
+    if not MYSQL_AVAILABLE: return default_stops
     try:
         conn = mysql.connector.connect(**DB_CONFIG)
         cur = conn.cursor(dictionary=True)
@@ -83,30 +110,22 @@ def fetch_stops_from_db():
             SELECT r.stop_order, r.address, s.student_id, s.rfid_code, s.full_name
             FROM RouteStop r
             LEFT JOIN students s ON r.student_id = s.student_id
-            WHERE r.route_id = 1
-            ORDER BY r.stop_order ASC
+            WHERE r.route_id = 1 ORDER BY r.stop_order ASC
         """)
         rows = cur.fetchall()
-        cur.close()
-        conn.close()
-
-        if not rows:
-            return default_stops
-
+        cur.close(); conn.close()
+        if not rows: return default_stops
         stops = []
         for i, row in enumerate(rows):
-            file_name = f"{i}.geojson"
-            rfid = row.get("rfid_code") or f"RFID_{row.get('student_id')}" if row.get("student_id") else None
-            seat = i + 2 if row.get("student_id") else None
             stops.append({
-                "file": file_name,
+                "file": f"{i}.geojson",
                 "student_name": row.get("full_name") or "Học sinh",
-                "rfid": rfid,
-                "seat": seat,
+                "rfid": row.get("rfid_code") or f"RFID_{row.get('student_id')}",
+                "seat": i + 2 if row.get("student_id") else None,
                 "address": row.get("address") or "Điểm dừng"
             })
         return stops
-    except Exception as e:
+    except Exception:
         return default_stops
 
 def build_frame(main_evt: int, sub_evt: int, data: bytes = b"") -> bytes:
@@ -114,10 +133,8 @@ def build_frame(main_evt: int, sub_evt: int, data: bytes = b"") -> bytes:
     frame = bytearray([0xAA, main_evt, sub_evt, length])
     frame.extend(data)
     chk = main_evt ^ sub_evt ^ length
-    for b in data:
-        chk ^= b
-    frame.append(chk)
-    frame.append(0x55)
+    for b in data: chk ^= b
+    frame.append(chk); frame.append(0x55)
     return bytes(frame)
 
 class STM32Simulator:
@@ -131,7 +148,7 @@ class STM32Simulator:
     def connect(self):
         try:
             self.ser = serial.Serial(self.port, self.baudrate, timeout=0.1)
-            print(f"[STM32 Sim] Connected to serial port: {self.port} at {self.baudrate} baud.")
+            add_log(f"Connected to serial port: {self.port} at {self.baudrate} baud.")
             return True
         except Exception as e:
             if os.name != "nt":
@@ -144,12 +161,11 @@ class STM32Simulator:
                         except Exception: pass
                     os.symlink(slave_name, "/tmp/ttyVIRTUAL_PI")
                     self.master_fd = master
-                    print(f"[STM32 Sim] Created Linux Virtual PTY: /tmp/ttyVIRTUAL_PI -> {slave_name}")
+                    add_log(f"Created Linux Virtual PTY: /tmp/ttyVIRTUAL_PI -> {slave_name}")
                     return True
                 except Exception as pty_err:
-                    print(f"[STM32 Sim] PTY creation error: {pty_err}")
-            print(f"[STM32 Sim] Warning: Cannot open serial port {self.port}: {e}")
-            print("[STM32 Sim] Running in console-only print mode.")
+                    add_log(f"PTY creation error: {pty_err}")
+            add_log(f"Cannot open serial port {self.port}: {e}. Console-only mode.")
             return False
 
     def start_receiver(self):
@@ -160,40 +176,33 @@ class STM32Simulator:
         state = "STX"
         rx_main = rx_sub = rx_len = 0
         rx_data = bytearray()
-        rx_chk = 0
 
         while self.running:
             try:
                 data_bytes = None
                 if self.ser and self.ser.is_open:
                     waiting = self.ser.in_waiting
-                    if waiting > 0:
-                        data_bytes = self.ser.read(waiting)
+                    if waiting > 0: data_bytes = self.ser.read(waiting)
                 elif self.master_fd is not None:
                     import select
                     r, _, _ = select.select([self.master_fd], [], [], 0.1)
-                    if r:
-                        data_bytes = os.read(self.master_fd, 1024)
+                    if r: data_bytes = os.read(self.master_fd, 1024)
                 else:
-                    time.sleep(0.5)
-                    continue
+                    time.sleep(0.5); continue
 
                 if data_bytes:
                     for b in data_bytes:
                         if state == "STX":
                             if b == 0xAA: state = "MAIN"
-                        elif state == "MAIN":
-                            rx_main = b; state = "SUB"
-                        elif state == "SUB":
-                            rx_sub = b; state = "LEN"
+                        elif state == "MAIN": rx_main = b; state = "SUB"
+                        elif state == "SUB": rx_sub = b; state = "LEN"
                         elif state == "LEN":
                             rx_len = b; rx_data = bytearray()
                             state = "DATA" if rx_len > 0 else "CHECKSUM"
                         elif state == "DATA":
                             rx_data.append(b)
                             if len(rx_data) >= rx_len: state = "CHECKSUM"
-                        elif state == "CHECKSUM":
-                            rx_chk = b; state = "ETX"
+                        elif state == "CHECKSUM": rx_chk = b; state = "ETX"
                         elif state == "ETX":
                             if b == 0x55:
                                 chk = rx_main ^ rx_sub ^ rx_len
@@ -201,22 +210,22 @@ class STM32Simulator:
                                 if chk == rx_chk:
                                     self._on_frame_received(rx_main, rx_sub, rx_data)
                             state = "STX"
-            except Exception as e:
+            except Exception:
                 time.sleep(0.5)
 
     def _on_frame_received(self, main_evt, sub_evt, data):
         global driver_logged_in, active_driver_id
         data_str = data.decode("utf-8", errors="ignore")
-        print(f"\n[ALL LOG] RECV Frame from Pi: Main=0x{main_evt:02X}, Sub=0x{sub_evt:02X}, Data='{data_str}'")
+        add_log(f"RECV Frame from Pi: Main=0x{main_evt:02X}, Sub=0x{sub_evt:02X}, Data='{data_str}'")
         
-        if main_evt == 0x01 and sub_evt == 0x01: # Driver Login Success
+        if main_evt == 0x01 and sub_evt == 0x01:
             driver_logged_in = True
             active_driver_id = data_str
-            print(f"✅ [ALL LOG] Tài xế {active_driver_id} đã ĐĂNG NHẬP THÀNH CÔNG trên Pi UI.")
-        elif main_evt == 0x02 and sub_evt == 0x01: # Driver Logout Success
+            add_log(f"✅ Tài xế {active_driver_id} đã ĐĂNG NHẬP THÀNH CÔNG trên Pi UI.")
+        elif main_evt == 0x02 and sub_evt == 0x01:
             driver_logged_in = False
             active_driver_id = ""
-            print(f"🔒 [ALL LOG] Tài xế đã ĐĂNG XUẤT THÀNH CÔNG trên Pi UI.")
+            add_log("🔒 Tài xế đã ĐĂNG XUẤT THÀNH CÔNG trên Pi UI.")
 
         audio_map = {
             (0x01, 0x01): "🔊 LOA PHÁT: 01/001 - Tài xế login THÀNH CÔNG",
@@ -226,31 +235,29 @@ class STM32Simulator:
             (0x05, 0x01): "🔊 LOA PHÁT: 05/001 - Học sinh quẹt thẻ THÀNH CÔNG",
             (0x05, 0x03): "🔊 LOA PHÁT: 05/003 - Học sinh cuối cùng đã lên xe (Chiều đón)",
             (0x05, 0x04): "🔊 LOA PHÁT: 05/004 - Học sinh cuối cùng đã xuống xe (Chiều trả)",
-            (0x05, 0x06): "🔊 LOA PHÁT: 05/006 - Xuống xe hàng loạt tại trường. Bác tài & phụ xe kiểm tra kỹ xe!",
+            (0x05, 0x06): "🔊 LOA PHÁT: 05/006 - Xuống xe hàng loạt tại trường. Bác tài & phụ xe kiểm tra xe!",
             (0x07, 0x01): "🚨 LOA PHÁT: 07/001 - CẢNH BÁO SOS KHẨN CẤP",
             (0x08, 0x01): "🚨 LOA PHÁT: 08/001 - CẢNH BÁO: HỌC SINH TRÊN XE KHÔNG CÓ TÀI XẾ/PHỤ XE!",
         }
         key = (main_evt, sub_evt)
         if key in audio_map:
-            print(f"[ALL LOG] {audio_map[key]}")
-        sys.stdout.write("CMD> ")
-        sys.stdout.flush()
+            add_log(audio_map[key])
 
     def send_data(self, frame: bytes):
         if self.ser and self.ser.is_open:
             try:
                 self.ser.write(frame)
-                print(f"[ALL LOG] SENT Frame ({len(frame)} bytes): {frame.hex().upper()}")
+                add_log(f"SENT Frame ({len(frame)} bytes): {frame.hex().upper()}")
             except Exception as e:
-                print(f"[ALL LOG] Send error: {e}")
+                add_log(f"Send error: {e}")
         elif self.master_fd is not None:
             try:
                 os.write(self.master_fd, frame)
-                print(f"[ALL LOG] SENT Frame via PTY ({len(frame)} bytes): {frame.hex().upper()}")
+                add_log(f"SENT Frame via PTY ({len(frame)} bytes): {frame.hex().upper()}")
             except Exception as e:
-                print(f"[ALL LOG] Virtual PTY send error: {e}")
+                add_log(f"PTY send error: {e}")
         else:
-            print(f"[ALL LOG] [Simulated Out] Frame ({len(frame)} bytes): {frame.hex().upper()}")
+            add_log(f"[Simulated Out] Frame ({len(frame)} bytes): {frame.hex().upper()}")
 
 def send_seats(sim: STM32Simulator):
     seat_str = "".join([f"s{i}:{seat_states[i]}" for i in range(1, 17)])
@@ -267,18 +274,17 @@ def load_geojson_coordinates(filepath):
         with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
         return data["geometry"]["coordinates"]
-    except Exception as e:
+    except Exception:
         return []
 
 def run_system_simulation(sim: STM32Simulator):
-    global auto_sim_running, current_lat, current_lon, current_speed, driver_logged_in
+    global auto_sim_running, current_lat, current_lon, current_speed
     auto_sim_running = True
     stops = fetch_stops_from_db()
     
-    print("\n[ALL LOG] 🚀 BẮT ĐẦU MÔ PHỎNG TỰ ĐỘNG XE DI CHUYỂN & ĐÓN HỌC SINH")
+    add_log("🚀 BẮT ĐẦU MÔ PHỎNG TỰ ĐỘNG XE DI CHUYỂN & ĐÓN HỌC SINH")
 
-    seat_states[1] = 1 # Driver
-    seat_states[2] = 1 # Attendant
+    seat_states[1] = 1; seat_states[2] = 1
     send_seats(sim)
     time.sleep(1.5)
 
@@ -289,12 +295,11 @@ def run_system_simulation(sim: STM32Simulator):
         coords = load_geojson_coordinates(geojson_path)
         if not coords: continue
 
-        print(f"\n[ALL LOG] 🚌 [ĐOẠN {idx+1}/{len(stops)}] Xe bắt đầu di chuyển đến: {stop['address']}")
+        add_log(f"🚌 [ĐOẠN {idx+1}/{len(stops)}] Xe di chuyển đến: {stop['address']}")
 
         step = max(1, len(coords) // 25)
         sampled_coords = coords[::step]
-        if coords[-1] not in sampled_coords:
-            sampled_coords.append(coords[-1])
+        if coords[-1] not in sampled_coords: sampled_coords.append(coords[-1])
 
         speed = 35.0
         for lon, lat in sampled_coords:
@@ -307,98 +312,79 @@ def run_system_simulation(sim: STM32Simulator):
 
         current_speed = 0.0
         send_gnss(sim, current_lat, current_lon, 0.0)
-        print(f"[ALL LOG] 📍 XE ĐÃ TỚI ĐIỂM DỪNG: {stop['address']}")
+        add_log(f"📍 XE ĐÃ TỚI ĐIỂM DỪNG: {stop['address']}")
 
         if stop["rfid"] and stop["seat"]:
-            print(f"[ALL LOG] 💳 [QUẸT THẺ TỰ ĐỘNG] Học sinh: {stop['student_name']} (Thẻ: {stop['rfid']})")
+            add_log(f"💳 [QUẸT THẺ] {stop['student_name']} (Thẻ: {stop['rfid']})")
             rfid_frame = build_frame(0xF2, 0x00, stop["rfid"].encode("ascii"))
             sim.send_data(rfid_frame)
             time.sleep(1.0)
 
-            print(f"[ALL LOG] 🪑 [VÀO GHẾ TỰ ĐỘNG] Học sinh ngồi vào Ghế {stop['seat']}")
+            add_log(f"🪑 [VÀO GHẾ] {stop['student_name']} ngồi Ghế {stop['seat']}")
             seat_states[stop["seat"]] = 1
             send_seats(sim)
             time.sleep(2.5)
         elif idx == len(stops) - 1:
-            print("[ALL LOG] 🏫 Xe đã về đến trường học! Học sinh xuống xe hàng loạt.")
+            add_log("🏫 Xe đã về đến trường học! Học sinh xuống xe hàng loạt.")
             for s in range(3, 17): seat_states[s] = 0
             send_seats(sim)
             time.sleep(2.0)
 
     auto_sim_running = False
-    print("\n[ALL LOG] ✅ HOÀN THÀNH CHUYẾN ĐI! Xe đã đưa toàn bộ học sinh về trường.")
-    sys.stdout.write("CMD> ")
-    sys.stdout.flush()
-
-def print_help():
-    print("""
-================================================================================
-                                    ALL LOG
-================================================================================
-[ALL LOGS DISPLAYED HERE]
-
---------------------------------------------------------------------------------
-CMD>
---------------------------------------------------------------------------------
-run_system - TỰ ĐỘNG Mô phỏng xe chạy & đón học sinh (YÊU CẦU ĐÃ LOGIN)
-stop_system - Dừng chế độ mô phỏng tự động
-rfid <MÃ_THẺ> - Gửi mã thẻ RFID quẹt (VD: rfid ABX12SSDX)
-seat <SỐ_GHẾ_1_16> <0|1> - Đặt trạng thái ghế (VD: seat 3 1)
-gnss <active|degrade|off> [lat] [lon] [spd] - Đặt trạng thái GNSS (VD: gnss active 21.0021 105.8462 30)
-sos - Giả lập nhấn nút SOS khẩn cấp
-dht <nhiệt_độ> <độ_ẩm> - Gửi thông số nhiệt độ/độ ẩm (VD: dht 28.5 65.0)
-status - Hiển thị trạng thái mô phỏng & tài xế hiện tại
-help / exit
-================================================================================
-""")
+    add_log("✅ HOÀN THÀNH CHUYẾN ĐI! Xe đã về đến trường.")
 
 def main():
+    draw_static_screen()
+    add_log("STM32 Master Hardware Simulator started.")
+
     sim = STM32Simulator(PORT, BAUDRATE)
     sim.connect()
     sim.start_receiver()
-    print_help()
 
     global gnss_state, current_lat, current_lon, current_speed, auto_sim_running, auto_sim_thread, driver_logged_in
 
     try:
         while True:
-            cmd = input("CMD> ").strip()
-            if not cmd:
-                continue
+            # Position cursor on line 12 for CMD> prompt
+            sys.stdout.write("\033[12;6H\033[K")
+            sys.stdout.flush()
+            cmd = input().strip()
+            if not cmd: continue
 
             parts = cmd.split()
             op = parts[0].lower()
 
             if op in ("exit", "quit"):
-                print("[ALL LOG] Exiting simulator.")
+                add_log("Exiting simulator.")
                 auto_sim_running = False
                 sim.running = False
                 break
 
             elif op == "help":
-                print_help()
+                draw_static_screen()
+                render_logs()
 
             elif op == "run_system":
                 if not driver_logged_in:
-                    print("\n[ALL LOG] ❌ KHÔNG THỂ CHẠY 'run_system': Tài xế CHƯA ĐĂNG NHẬP trên giao diện Pi!")
+                    add_log("❌ LỖI: Tài xế CHƯA ĐĂNG NHẬP trên giao diện Pi UI!")
                 elif auto_sim_running:
-                    print("[ALL LOG] Mô phỏng tự động đang chạy.")
+                    add_log("Mô phỏng tự động đang chạy.")
                 else:
                     auto_sim_thread = threading.Thread(target=run_system_simulation, args=(sim,), daemon=True)
                     auto_sim_thread.start()
 
             elif op == "stop_system":
                 if auto_sim_running:
-                    print("[ALL LOG] Đang dừng mô phỏng tự động...")
+                    add_log("Đang dừng mô phỏng tự động...")
                     auto_sim_running = False
 
             elif op == "status":
-                print(f"[ALL LOG] Tài xế logged in: {driver_logged_in} ({active_driver_id}) | Auto-Sim: {auto_sim_running}")
-                print(f"[ALL LOG] GNSS: {gnss_state.upper()} | Lat: {current_lat}, Lon: {current_lon}, Speed: {current_speed} km/h")
+                add_log(f"Driver Logged: {driver_logged_in} ({active_driver_id}) | GNSS: {gnss_state.upper()} | Speed: {current_speed}km/h")
 
             elif op == "rfid":
                 if len(parts) >= 2:
                     code = parts[1]
+                    add_log(f"Gửi quẹt thẻ RFID: {code}")
                     frame = build_frame(0xF2, 0x00, code.encode("ascii"))
                     sim.send_data(frame)
 
@@ -408,6 +394,7 @@ def main():
                         s_num = int(parts[1]); val = int(parts[2])
                         if 1 <= s_num <= 16 and val in (0, 1):
                             seat_states[s_num] = val
+                            add_log(f"Cập nhật Ghế {s_num} -> {val}")
                             send_seats(sim)
                     except ValueError: pass
 
@@ -422,9 +409,11 @@ def main():
                                 current_lon = float(parts[3])
                                 current_speed = float(parts[4])
                             except ValueError: pass
+                        add_log(f"Cập nhật GNSS -> {st.upper()} (Lat: {current_lat}, Lon: {current_lon}, Speed: {current_speed}km/h)")
                         send_gnss(sim, current_lat, current_lon, current_speed)
 
             elif op == "sos":
+                add_log("TRIGGER SOS KHẨN CẤP!")
                 frame = build_frame(0xF3, 0x01, b"\x01")
                 sim.send_data(frame)
 
@@ -432,6 +421,7 @@ def main():
                 if len(parts) >= 3:
                     try:
                         temp = float(parts[1]); humid = float(parts[2])
+                        add_log(f"Gửi cảm biến DHT11 -> Temp: {temp}C, Humid: {humid}%")
                         dht_str = f"{temp:.1f},{humid:.1f}"
                         frame = build_frame(0xF5, 0x00, dht_str.encode("ascii"))
                         sim.send_data(frame)

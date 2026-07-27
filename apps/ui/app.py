@@ -41,21 +41,18 @@ class CannotLogoutDialog(QDialog):
         c_layout = QVBoxLayout(container)
         c_layout.setContentsMargins(25, 20, 25, 20)
         
-        # Icon
-        icon_lbl = QLabel("⚠️")
+        icon_lbl = QLabel("[ ! ]")
         icon_lbl.setAlignment(Qt.AlignCenter)
-        icon_lbl.setFont(QFont("Segoe UI Emoji", 38))
-        icon_lbl.setStyleSheet("border: none;")
+        icon_lbl.setFont(QFont("Arial", 32, QFont.Bold))
+        icon_lbl.setStyleSheet("color: #dc2626; border: none;")
         c_layout.addWidget(icon_lbl)
         
-        # Title
         title_lbl = QLabel("KHÔNG THỂ ĐĂNG XUẤT")
         title_lbl.setAlignment(Qt.AlignCenter)
         title_lbl.setFont(QFont("Segoe UI", 16, QFont.Bold))
         title_lbl.setStyleSheet("color: #111111; border: none; margin-bottom: 5px;")
         c_layout.addWidget(title_lbl)
         
-        # Red detail box
         detail_box = QFrame()
         detail_box.setStyleSheet("background-color: #fdf2f2; border: 1px solid #f8d7da; border-radius: 10px; padding: 10px;")
         d_layout = QVBoxLayout(detail_box)
@@ -68,7 +65,6 @@ class CannotLogoutDialog(QDialog):
         
         c_layout.addWidget(detail_box)
         
-        # Button
         btn = QPushButton("ĐÃ HIỂU - KIỂM TRA XE NGAY")
         btn.setFont(QFont("Segoe UI", 12, QFont.Bold))
         btn.setStyleSheet("""
@@ -84,7 +80,6 @@ class CannotLogoutDialog(QDialog):
         """)
         btn.clicked.connect(self.accept)
         c_layout.addWidget(btn)
-        
         main_layout.addWidget(container)
 
 # Custom Dialog Popup for Slide 12: SOS Alert Triggered
@@ -110,14 +105,12 @@ class SOSAlertDialog(QDialog):
         c_layout = QVBoxLayout(container)
         c_layout.setContentsMargins(25, 20, 25, 20)
         
-        # Icon
-        icon_lbl = QLabel("🚨")
+        icon_lbl = QLabel("[ SOS ]")
         icon_lbl.setAlignment(Qt.AlignCenter)
-        icon_lbl.setFont(QFont("Segoe UI Emoji", 40))
-        icon_lbl.setStyleSheet("border: none;")
+        icon_lbl.setFont(QFont("Arial", 32, QFont.Bold))
+        icon_lbl.setStyleSheet("color: #dc2626; border: none;")
         c_layout.addWidget(icon_lbl)
         
-        # Title
         title_lbl = QLabel("CẢNH BÁO SOS ĐÃ ĐƯỢC KÍCH HOẠT!")
         title_lbl.setAlignment(Qt.AlignCenter)
         title_lbl.setFont(QFont("Segoe UI", 15, QFont.Bold))
@@ -131,7 +124,6 @@ class SOSAlertDialog(QDialog):
         desc.setStyleSheet("color: #4b5563; border: none; margin-bottom: 5px;")
         c_layout.addWidget(desc)
         
-        # Details gray box
         detail_box = QFrame()
         detail_box.setStyleSheet("background-color: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px;")
         d_layout = QVBoxLayout(detail_box)
@@ -147,7 +139,6 @@ class SOSAlertDialog(QDialog):
             
         c_layout.addWidget(detail_box)
         
-        # Cancel Button
         btn = QPushButton("HỦY CẢNH BÁO SOS")
         btn.setFont(QFont("Segoe UI", 12, QFont.Bold))
         btn.setStyleSheet("""
@@ -163,9 +154,7 @@ class SOSAlertDialog(QDialog):
         """)
         btn.clicked.connect(self.accept)
         c_layout.addWidget(btn)
-        
         main_layout.addWidget(container)
-
 
 # Custom Dialog Popup for Session Verification ("ĐANG KIỂM TRA PHIÊN LÀM VIỆC")
 class SessionCheckDialog(QDialog):
@@ -184,10 +173,10 @@ class SessionCheckDialog(QDialog):
         c_layout = QVBoxLayout(container)
         c_layout.setContentsMargins(25, 20, 25, 20)
         
-        icon_lbl = QLabel("⏳")
+        icon_lbl = QLabel("[ WAIT ]")
         icon_lbl.setAlignment(Qt.AlignCenter)
-        icon_lbl.setFont(QFont("Segoe UI Emoji", 38))
-        icon_lbl.setStyleSheet("border: none;")
+        icon_lbl.setFont(QFont("Arial", 28, QFont.Bold))
+        icon_lbl.setStyleSheet("color: #0284c7; border: none;")
         c_layout.addWidget(icon_lbl)
         
         title_lbl = QLabel("ĐANG KIỂM TRA PHIÊN LÀM VIỆC")
@@ -217,7 +206,6 @@ class SessionCheckDialog(QDialog):
         """)
         btn.clicked.connect(self.accept)
         c_layout.addWidget(btn)
-        
         main_layout.addWidget(container)
 
 
@@ -243,7 +231,6 @@ class BusMonitoringApp(QMainWindow):
         self.setWindowTitle(f"SchoolBus Gateway - {config.VEHICLE_ID}")
         self.resize(1024, 680)
         
-        # Near-white light background design stylesheet matching design_do_an.pdf
         self.setStyleSheet("""
             QMainWindow {
                 background-color: #eef2f5;
@@ -304,50 +291,37 @@ class BusMonitoringApp(QMainWindow):
         self.latest_humid = 60.0
         self.current_speed = 0.0
 
-        # Central Root Layout
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.root_layout = QVBoxLayout(self.central_widget)
         self.root_layout.setContentsMargins(12, 10, 12, 10)
         self.root_layout.setSpacing(10)
         
-        # 1. Build Fixed Top Header Bar (Matching Slides 6-12)
         self.build_top_header()
         
-        # 2. Main Stacked Widget (Page 0: Login Screen | Page 1: Operating Screen)
         self.stack = QStackedWidget()
         self.root_layout.addWidget(self.stack)
         
-        # Page 0: Login Screen (Slide 6 & 7)
         self.login_screen = self.build_login_screen()
         self.stack.addWidget(self.login_screen)
         
-        # Page 1: Operating Screen (Slide 8 & 9)
         self.operating_screen = self.build_operating_screen()
         self.stack.addWidget(self.operating_screen)
         
-        # Default show Login Screen (Page 0)
         self.stack.setCurrentIndex(0)
 
-        # Connect background signals
         self.connect_signals()
         
-        # UI Refresh timer
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_status_labels)
         self.timer.start(1000)
 
     def build_top_header(self):
-        """
-        Top Header Bar Container (Light White Background, Rounded Border)
-        Matches Slides 6-12 exact layout.
-        """
         header_frame = QFrame()
         header_frame.setObjectName("cardFrame")
         header_layout = QHBoxLayout(header_frame)
         header_layout.setContentsMargins(12, 8, 12, 8)
         
-        # Left: Academy Logo & Title
         logo_path = os.path.join(config.BASE_DIR, "image", "logo.png")
         if os.path.exists(logo_path):
             logo_lbl = QLabel()
@@ -381,20 +355,19 @@ class BusMonitoringApp(QMainWindow):
         
         header_layout.addStretch()
         
-        # Right: 4 Status Indicators + Red SOS Button
         self.badge_gnss = QLabel("GNSS: OFF")
         self.badge_gnss.setStyleSheet("background-color: #ffffff; color: #dc2626; border: 1px solid #fca5a5; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
         
-        self.badge_cam = QLabel("📷 READY")
+        self.badge_cam = QLabel("CAM: READY")
         self.badge_cam.setStyleSheet("background-color: #ffffff; color: #16a34a; border: 1px solid #93c5fd; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
         
-        self.badge_wifi = QLabel("💻 CONNECTED")
+        self.badge_wifi = QLabel("WIFI: CONNECTED")
         self.badge_wifi.setStyleSheet("background-color: #ffffff; color: #16a34a; border: 1px solid #93c5fd; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
         
-        self.badge_db = QLabel("🛢️ CONNECTED")
-        self.badge_db.setStyleSheet("background-color: #ffffff; color: #16a34a; border: 1px solid #93c5fd; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
+        self.badge_db = QLabel("DB: DISCONNECTED")
+        self.badge_db.setStyleSheet("background-color: #ffffff; color: #dc2626; border: 1px solid #fca5a5; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
         
-        self.sos_btn = QPushButton("⚠️  SOS")
+        self.sos_btn = QPushButton("SOS")
         self.sos_btn.setObjectName("sosTopBtn")
         self.sos_btn.clicked.connect(self.sos_click)
         
@@ -407,17 +380,11 @@ class BusMonitoringApp(QMainWindow):
         self.root_layout.addWidget(header_frame)
 
     def build_login_screen(self) -> QWidget:
-        """
-        Screen 1: Login Screen (Matches Slide 6 & Slide 7)
-        - Left: Black Camera view with dashed frame ('CĂN MẶT VÀO KHUNG')
-        - Right: White Login Card with School Bus image ('school_bus.png') & Orange Login button
-        """
         page = QWidget()
         layout = QHBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
         
-        # Left Panel (Camera Preview)
         cam_card = QFrame()
         cam_card.setObjectName("cardFrame")
         cam_layout = QVBoxLayout(cam_card)
@@ -433,8 +400,7 @@ class BusMonitoringApp(QMainWindow):
         cam_hint.setFont(QFont("Arial", 12, QFont.Bold))
         cam_hint.setStyleSheet("color: #1f2937; margin-top: 8px;")
         
-        # Error toast label inside camera (Slide 7)
-        self.login_error_toast = QLabel("❌ LOGIN FAILED - Không khớp khuôn mặt")
+        self.login_error_toast = QLabel("LOGIN FAILED - Không khớp khuôn mặt")
         self.login_error_toast.setStyleSheet("background-color: #dc2626; color: white; padding: 8px 16px; border-radius: 8px; font-weight: bold;")
         self.login_error_toast.hide()
         
@@ -444,25 +410,19 @@ class BusMonitoringApp(QMainWindow):
         
         layout.addWidget(cam_card, 2)
         
-        # Right Panel (Login Action Container - Slide 6)
         right_card = QFrame()
         right_card.setObjectName("cardFrame")
         r_layout = QVBoxLayout(right_card)
         r_layout.setContentsMargins(20, 20, 20, 20)
         
-        # Login Title
         login_header = QHBoxLayout()
-        finger_icon = QLabel("🖐️")
-        finger_icon.setFont(QFont("Segoe UI Emoji", 20))
         h_txt = QLabel("ĐĂNG NHẬP")
         h_txt.setFont(QFont("Arial", 16, QFont.Bold))
         h_txt.setStyleSheet("color: #ea580c;")
-        login_header.addWidget(finger_icon)
         login_header.addWidget(h_txt)
         login_header.addStretch()
         r_layout.addLayout(login_header)
         
-        # School Bus Image Container
         bus_box = QFrame()
         bus_box.setStyleSheet("background-color: #fef3c7; border-radius: 16px; padding: 15px;")
         b_layout = QVBoxLayout(bus_box)
@@ -475,35 +435,31 @@ class BusMonitoringApp(QMainWindow):
             bus_img_lbl.setPixmap(pix)
             b_layout.addWidget(bus_img_lbl)
         else:
-            bus_img_lbl = QLabel("🚌 SCHOOL BUS")
-            bus_img_lbl.setFont(QFont("Arial", 28))
+            bus_img_lbl = QLabel("SCHOOL BUS")
+            bus_img_lbl.setFont(QFont("Arial", 28, QFont.Bold))
+            bus_img_lbl.setStyleSheet("color: #d97706;")
             b_layout.addWidget(bus_img_lbl)
             
         r_layout.addWidget(bus_box)
         
-        # Sub Info Card
         info_sub = QFrame()
         info_sub.setStyleSheet("background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px;")
         i_layout = QVBoxLayout(info_sub)
         i_layout.setAlignment(Qt.AlignCenter)
         
-        face_icon = QLabel("📷")
-        face_icon.setFont(QFont("Segoe UI Emoji", 22))
         lbl1 = QLabel("Xác thực tài xế")
         lbl1.setFont(QFont("Arial", 12, QFont.Bold))
         lbl1.setStyleSheet("color: #1e2937;")
         lbl2 = QLabel("Nhấn nút bên dưới để quét khuôn mặt")
         lbl2.setStyleSheet("color: #64748b; font-size: 11px;")
         
-        i_layout.addWidget(face_icon, alignment=Qt.AlignCenter)
         i_layout.addWidget(lbl1, alignment=Qt.AlignCenter)
         i_layout.addWidget(lbl2, alignment=Qt.AlignCenter)
         r_layout.addWidget(info_sub)
         
         r_layout.addStretch()
         
-        # Big Orange Login Button
-        self.login_btn = QPushButton("👤 ĐĂNG NHẬP")
+        self.login_btn = QPushButton("ĐĂNG NHẬP")
         self.login_btn.setObjectName("orangeBtn")
         self.login_btn.setFont(QFont("Arial", 14, QFont.Bold))
         self.login_btn.setMinimumHeight(50)
@@ -514,55 +470,41 @@ class BusMonitoringApp(QMainWindow):
         return page
 
     def build_operating_screen(self) -> QWidget:
-        """
-        Screen 2: Operating Screen (Matches Slide 8 & Slide 9)
-        - Left:
-          - Driver & Attendant Info Header Bar + Logout button
-          - OpenStreetMap Map View with Top Overlay Card ('📍 ĐIỂM ĐẾN: ... 33.0 Km/h')
-          - Bottom 3 Summary Cards ('HỌC SINH TRÊN XE', 'GIAI ĐOẠN CHUYẾN', 'NHIỆT ĐỘ|ĐỘ ẨM')
-        - Right:
-          - Seat Position Matrix ('SƠ ĐỒ VỊ TRÍ GHẾ NGỒI') & Legend
-        """
         page = QWidget()
         layout = QHBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
         
-        # Left Main Panel
         left_card = QFrame()
         left_card.setObjectName("cardFrame")
         l_layout = QVBoxLayout(left_card)
         l_layout.setContentsMargins(12, 12, 12, 12)
         l_layout.setSpacing(10)
         
-        # Top Crew Info Bar (Slide 8/9)
         crew_bar = QHBoxLayout()
         
-        # Driver Card
         self.drv_box = QFrame()
         self.drv_box.setStyleSheet("background-color: #fff7ed; border: 1px solid #ffedd5; border-radius: 10px; padding: 6px 12px;")
         drv_l = QHBoxLayout(self.drv_box)
         tx_badge = QLabel("TX")
         tx_badge.setStyleSheet("background-color: #f97316; color: white; font-weight: bold; border-radius: 4px; padding: 4px 8px;")
-        self.tx_info = QLabel("Hà Văn Đạt\nMã: DR_001 . Bằng: B2")
+        self.tx_info = QLabel("Chưa đăng nhập\nMã: ---")
         self.tx_info.setFont(QFont("Arial", 10, QFont.Bold))
         self.tx_info.setStyleSheet("color: #c2410c;")
         drv_l.addWidget(tx_badge)
         drv_l.addWidget(self.tx_info)
         
-        # Attendant Card
         self.px_box = QFrame()
         self.px_box.setStyleSheet("background-color: #f0f9ff; border: 1px solid #e0f2fe; border-radius: 10px; padding: 6px 12px;")
         px_l = QHBoxLayout(self.px_box)
         px_badge = QLabel("PX")
         px_badge.setStyleSheet("background-color: #0284c7; color: white; font-weight: bold; border-radius: 4px; padding: 4px 8px;")
-        self.px_info = QLabel("Hà Mai Xuân\nMã: PX001")
+        self.px_info = QLabel("Chưa đăng nhập\nMã: ---")
         self.px_info.setFont(QFont("Arial", 10, QFont.Bold))
         self.px_info.setStyleSheet("color: #0369a1;")
         px_l.addWidget(px_badge)
         px_l.addWidget(self.px_info)
         
-        # Logout Button
         self.logout_btn = QPushButton("↳ Đăng xuất")
         self.logout_btn.setObjectName("logoutTopBtn")
         self.logout_btn.clicked.connect(self.driver_logout_click)
@@ -573,34 +515,28 @@ class BusMonitoringApp(QMainWindow):
         crew_bar.addWidget(self.logout_btn)
         l_layout.addLayout(crew_bar)
         
-        # Map Area Container (Slide 8/9)
         self.map_container = QFrame()
         self.map_container.setStyleSheet("background-color: #e2e8f0; border-radius: 14px; border: 1px solid #cbd5e1;")
         map_c_layout = QVBoxLayout(self.map_container)
         map_c_layout.setContentsMargins(8, 8, 8, 8)
         
-        # Map Top Overlay Destination Card (Slide 8/9)
         dest_overlay = QFrame()
         dest_overlay.setStyleSheet("background-color: #ffffff; border-radius: 10px; border: 1px solid #e2e8f0; padding: 8px 14px;")
         d_o_layout = QHBoxLayout(dest_overlay)
         
-        arr_icon = QLabel("📍")
-        arr_icon.setFont(QFont("Segoe UI Emoji", 14))
         self.dest_title_lbl = QLabel("ĐIỂM ĐẾN: LK6D – NGUYỄN VĂN LỘC")
         self.dest_title_lbl.setFont(QFont("Arial", 12, QFont.Bold))
         self.dest_title_lbl.setStyleSheet("color: #0f172a;")
         
-        self.speed_lbl = QLabel("33.0 Km/h")
+        self.speed_lbl = QLabel("0.0 Km/h")
         self.speed_lbl.setFont(QFont("Arial", 14, QFont.Bold))
         self.speed_lbl.setStyleSheet("color: #0284c7;")
         
-        d_o_layout.addWidget(arr_icon)
         d_o_layout.addWidget(self.dest_title_lbl)
         d_o_layout.addStretch()
         d_o_layout.addWidget(self.speed_lbl)
         map_c_layout.addWidget(dest_overlay)
         
-        # Map View Widget (OpenStreetMap / Leaflet JS)
         if WEB_ENGINE_AVAILABLE:
             self.map_view = QWebEngineView()
             self.map_view.setStyleSheet("border-radius: 10px;")
@@ -642,7 +578,7 @@ class BusMonitoringApp(QMainWindow):
             self.map_view.setHtml(map_html)
             map_c_layout.addWidget(self.map_view)
         else:
-            self.map_view = QLabel("🗺️ OpenStreetMap Tracking Active")
+            self.map_view = QLabel("OpenStreetMap Tracking Active")
             self.map_view.setAlignment(Qt.AlignCenter)
             self.map_view.setFont(QFont("Arial", 14, QFont.Bold))
             self.map_view.setStyleSheet("color: #0284c7;")
@@ -650,11 +586,9 @@ class BusMonitoringApp(QMainWindow):
             
         l_layout.addWidget(self.map_container, 3)
         
-        # Bottom Row 3 Summary Cards (Slide 8/9)
         cards_row = QHBoxLayout()
         cards_row.setSpacing(10)
         
-        # Card 1: HỌC SINH TRÊN XE
         c1 = QFrame()
         c1.setStyleSheet("background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 8px;")
         c1_l = QVBoxLayout(c1)
@@ -662,13 +596,12 @@ class BusMonitoringApp(QMainWindow):
         t1 = QLabel("HỌC SINH TRÊN XE")
         t1.setFont(QFont("Arial", 11, QFont.Bold))
         t1.setStyleSheet("color: #ea580c;")
-        self.val_students = QLabel("8 / 14")
+        self.val_students = QLabel("0 / 14")
         self.val_students.setFont(QFont("Arial", 18, QFont.Bold))
         self.val_students.setStyleSheet("color: #16a34a;")
         c1_l.addWidget(t1, alignment=Qt.AlignCenter)
         c1_l.addWidget(self.val_students, alignment=Qt.AlignCenter)
         
-        # Card 2: GIAI ĐOẠN CHUYẾN
         c2 = QFrame()
         c2.setStyleSheet("background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 8px;")
         c2_l = QVBoxLayout(c2)
@@ -682,7 +615,6 @@ class BusMonitoringApp(QMainWindow):
         c2_l.addWidget(t2, alignment=Qt.AlignCenter)
         c2_l.addWidget(self.val_phase, alignment=Qt.AlignCenter)
         
-        # Card 3: NHIỆT ĐỘ | ĐỘ ẨM
         c3 = QFrame()
         c3.setStyleSheet("background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 8px;")
         c3_l = QVBoxLayout(c3)
@@ -703,7 +635,6 @@ class BusMonitoringApp(QMainWindow):
         
         layout.addWidget(left_card, 2)
         
-        # Right Panel (Seat Matrix - Slide 8/9)
         right_card = QFrame()
         right_card.setObjectName("cardFrame")
         r_layout = QVBoxLayout(right_card)
@@ -714,7 +645,6 @@ class BusMonitoringApp(QMainWindow):
         seats_title.setStyleSheet("color: #1e2937; margin-bottom: 5px;")
         r_layout.addWidget(seats_title)
         
-        # Seat Grid Frame
         seat_grid_frame = QFrame()
         seat_grid_frame.setStyleSheet("background-color: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; padding: 8px;")
         sg_layout = QGridLayout(seat_grid_frame)
@@ -734,7 +664,6 @@ class BusMonitoringApp(QMainWindow):
         r_layout.addWidget(seat_grid_frame)
         r_layout.addStretch()
         
-        # Seat Color Legend (Slide 8/9)
         legend_frame = QHBoxLayout()
         lg1 = QLabel("● Tài xế")
         lg1.setStyleSheet("color: #f97316; font-size: 11px; font-weight: bold;")
@@ -776,7 +705,36 @@ class BusMonitoringApp(QMainWindow):
     @pyqtSlot(QImage)
     def update_camera_frame(self, q_img):
         if hasattr(self, "video_label") and self.video_label:
-            pix = QPixmap.fromImage(q_img).scaled(
+            # Burn dashed green bounding box and top orange label directly into frame
+            q_img_draw = q_img.convertToFormat(QImage.Format_ARGB32)
+            painter = QPainter(q_img_draw)
+            painter.setRenderHint(QPainter.Antialiasing)
+            
+            w, h = q_img_draw.width(), q_img_draw.height()
+            box_w, box_h = int(w * 0.55), int(h * 0.65)
+            x = (w - box_w) // 2
+            y = (h - box_h) // 2 + 10
+            
+            # Dashed Green Bounding Box
+            pen = QPen(QColor("#16a34a"), 4, Qt.DashLine)
+            painter.setPen(pen)
+            painter.drawRoundedRect(x, y, box_w, box_h, 8, 8)
+            
+            # Top Orange Label Box: "CĂN MẶT VÀO KHUNG"
+            lbl_w, lbl_h = 200, 32
+            lbl_x = (w - lbl_w) // 2
+            lbl_y = y - 16
+            
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor("#ea580c"))
+            painter.drawRoundedRect(lbl_x, lbl_y, lbl_w, lbl_h, 6, 6)
+            
+            painter.setPen(QColor("#ffffff"))
+            painter.setFont(QFont("Arial", 11, QFont.Bold))
+            painter.drawText(lbl_x, lbl_y, lbl_w, lbl_h, Qt.AlignCenter, "CĂN MẶT VÀO KHUNG")
+            painter.end()
+            
+            pix = QPixmap.fromImage(q_img_draw).scaled(
                 self.video_label.width(),
                 self.video_label.height(),
                 Qt.KeepAspectRatioByExpanding,
@@ -797,13 +755,13 @@ class BusMonitoringApp(QMainWindow):
             if seat_num in self.seat_labels:
                 lbl = self.seat_labels[seat_num]
                 if seat_num == "1":
-                    lbl.setStyleSheet("background-color: #f97316; color: white; border-radius: 6px; font-weight: bold;") # Driver
+                    lbl.setStyleSheet("background-color: #f97316; color: white; border-radius: 6px; font-weight: bold;")
                 elif seat_num == "2":
-                    lbl.setStyleSheet("background-color: #0284c7; color: white; border-radius: 6px; font-weight: bold;") # Attendant
+                    lbl.setStyleSheet("background-color: #0284c7; color: white; border-radius: 6px; font-weight: bold;")
                 elif status == 1:
-                    lbl.setStyleSheet("background-color: #16a34a; color: white; border-radius: 6px; font-weight: bold;") # Student
+                    lbl.setStyleSheet("background-color: #16a34a; color: white; border-radius: 6px; font-weight: bold;")
                 else:
-                    lbl.setStyleSheet("background-color: #ffffff; color: #475569; border: 1px solid #cbd5e1; border-radius: 6px; font-weight: bold;") # Empty
+                    lbl.setStyleSheet("background-color: #ffffff; color: #475569; border: 1px solid #cbd5e1; border-radius: 6px; font-weight: bold;")
 
     @pyqtSlot(str)
     def on_rfid_received(self, rfid_uid):
@@ -837,7 +795,7 @@ class BusMonitoringApp(QMainWindow):
 
     def driver_login_click(self):
         self.login_btn.setEnabled(False)
-        self.login_btn.setText("⏳ ĐANG QUÉT...")
+        self.login_btn.setText("ĐANG QUÉT...")
         self.login_error_toast.hide()
         
         self.login_face_worker = FaceVectorWorker(self.camera)
@@ -845,19 +803,19 @@ class BusMonitoringApp(QMainWindow):
         self.login_face_worker.start()
 
     def on_login_face_captured(self, vector):
-        self.login_btn.setText("👤 ĐĂNG NHẬP")
+        self.login_btn.setText("ĐĂNG NHẬP")
         self.login_btn.setEnabled(True)
         
         if vector is None:
             self.uart.send_frame(0x01, 0x02)
-            self.login_error_toast.setText("❌ LOGIN FAILED - Không thấy tài xế")
+            self.login_error_toast.setText("LOGIN FAILED - Không thấy tài xế")
             self.login_error_toast.show()
             return
             
         cached_user = self.auth.match_face_offline(vector, "driver")
         if cached_user and not self.mqtt.is_connected:
             self.session.process_driver_login(cached_user["user_id"], cached_user["full_name"])
-            self.stack.setCurrentIndex(1) # Switch to Screen 2
+            self.stack.setCurrentIndex(1)
             self.update_status_labels()
             return
             
@@ -865,13 +823,12 @@ class BusMonitoringApp(QMainWindow):
             self._login_vector = vector
             self.mqtt.publish_message(1, {"face_vector": vector}, priority=1)
         else:
-            self.login_error_toast.setText("❌ Không có kết nối mạng!")
+            self.login_error_toast.setText("Không có kết nối mạng!")
             self.login_error_toast.show()
 
     def driver_logout_click(self):
         can_logout, reason = self.session.can_driver_logout()
         if not can_logout:
-            # Slide 10 Modal Warning Popup
             dlg = CannotLogoutDialog(reason, self)
             dlg.exec_()
             return
@@ -884,7 +841,7 @@ class BusMonitoringApp(QMainWindow):
         if vector is not None and self.auth.verify_driver_presence(vector):
             self.mqtt.publish_message(3, {}, priority=1)
             self.session.process_driver_logout()
-            self.stack.setCurrentIndex(0) # Switch back to Screen 1
+            self.stack.setCurrentIndex(0)
             self.update_status_labels()
         else:
             QMessageBox.critical(self, "Lỗi xác thực", "Khuôn mặt đăng xuất không khớp!")
@@ -892,24 +849,17 @@ class BusMonitoringApp(QMainWindow):
     def sos_click(self):
         self.uart.send_frame(0x07, 0x01)
         self.mqtt.publish_message(15, {"lat": 21.0021, "lon": 105.8462, "triggered_by": 1, "seat_number": 1}, priority=2)
-        # Slide 12 SOS Alert Popup Dialog
         dlg = SOSAlertDialog(21.0021, 105.8462, self)
         dlg.exec_()
 
     def update_status_labels(self):
-        # Update Wifi & DB badges
         if self.mqtt.is_connected:
-            self.badge_wifi.setText("💻 CONNECTED")
+            self.badge_wifi.setText("WIFI: CONNECTED")
             self.badge_wifi.setStyleSheet("background-color: #ffffff; color: #16a34a; border: 1px solid #93c5fd; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
-            self.badge_db.setText("🛢️ CONNECTED")
-            self.badge_db.setStyleSheet("background-color: #ffffff; color: #16a34a; border: 1px solid #93c5fd; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
         else:
-            self.badge_wifi.setText("💻 DISCONNECTED")
+            self.badge_wifi.setText("WIFI: DISCONNECTED")
             self.badge_wifi.setStyleSheet("background-color: #ffffff; color: #dc2626; border: 1px solid #fca5a5; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
-            self.badge_db.setText("🛢️ DISCONNECTED")
-            self.badge_db.setStyleSheet("background-color: #ffffff; color: #dc2626; border: 1px solid #fca5a5; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
 
-        # Update Driver & Attendant Info
         if self.auth.active_driver:
             d_name = self.auth.active_driver.get("full_name", "Tài xế")
             d_id = self.auth.active_driver.get("driver_id", "DR_001")
@@ -925,7 +875,6 @@ class BusMonitoringApp(QMainWindow):
         else:
             self.px_info.setText("Chưa đăng nhập\nMã: ---")
 
-        # Summary count
         onboard_count = sum(1 for i in range(3, 17) if self.latest_seats_state.get(str(i), 0) == 1)
         self.val_students.setText(f"{onboard_count} / 14")
         self.val_phase.setText(getattr(self.boarding, "trip_phase", "PICKUP"))
@@ -938,34 +887,33 @@ class BusMonitoringApp(QMainWindow):
             driver_id = data.get("driver_id", "DR_001")
             self.uart.send_frame(0x01, 0x01, driver_id.encode("ascii"))
             self.session.process_driver_login(driver_id, name)
-            self.stack.setCurrentIndex(1) # Switch to Operating Screen (Slide 8/9)
+            self.stack.setCurrentIndex(1)
             self.update_status_labels()
         else:
             self.uart.send_frame(0x01, 0x02)
-            self.login_error_toast.setText("❌ LOGIN FAILED - Không khớp khuôn mặt")
+            self.login_error_toast.setText("LOGIN FAILED - Không khớp khuôn mặt")
             self.login_error_toast.show()
 
     def _handle_vehicle_status_ack(self, data):
         session_state = data.get("session_state", 0)
-        self.badge_db.setText("🛢️ CONNECTED")
+        self.badge_db.setText("DB: CONNECTED")
         self.badge_db.setStyleSheet("background-color: #ffffff; color: #16a34a; border: 1px solid #93c5fd; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
         
-        if session_state == 1: # PENDING_CONFIRM
+        if session_state == 1:
             driver_name = data.get("existing_driver_name", "Tài xế cũ")
             dlg = SessionCheckDialog(driver_name, self)
             dlg.exec_()
-        elif session_state == 2: # RESUMED
+        elif session_state == 2:
             driver_id = data.get("driver_id")
             name = data.get("driver_full_name")
             self.session.process_driver_login(driver_id, name)
-            self.stack.setCurrentIndex(1) # Switch to Operating Screen
+            self.stack.setCurrentIndex(1)
             self.update_status_labels()
 
     def _handle_student_scan_ack(self, data):
         next_id = data.get("next_student_id")
         next_name = data.get("next_student_name", "---")
         next_addr = data.get("next_address", "---")
-        
         self.dest_title_lbl.setText(f"ĐIỂM ĐẾN: {next_name} – {next_addr}")
         
         if next_id is None:
