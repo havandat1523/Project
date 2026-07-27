@@ -2,6 +2,8 @@ import cv2
 import time
 import numpy as np
 import subprocess
+import queue
+import threading
 from PyQt5.QtCore import QThread, pyqtSignal
 from PyQt5.QtGui import QImage
 from services.logger import get_logger
@@ -40,7 +42,6 @@ class CameraService(QThread):
         self.cap = None
         self.picam2 = None
         self.latest_frame = None
-        import threading
         self.lock = threading.Lock()
         
         # RTSP Streaming fields
@@ -48,6 +49,8 @@ class CameraService(QThread):
         self.stream_host = None
         self.stream_port = None
         self.is_streaming = False
+        self.stream_queue = queue.Queue(maxsize=2)
+        self.stream_thread = None
 
     def try_open_camera(self):
         """
@@ -135,14 +138,8 @@ class CameraService(QThread):
             with self.lock:
                 self.latest_frame = frame.copy()
                 
-            # If streaming is enabled, write frame to FFmpeg subprocess
-            if self.is_streaming and self.streaming_process:
-                try:
-                    stream_frame = cv2.resize(frame, (640, 480))
-                    self.streaming_process.stdin.write(stream_frame.tobytes())
-                except Exception as e:
-                    logger.error("Error writing frame to stream process: %s", e)
-                    self.stop_streaming()
+            # If streaming is enabled, push frame to non-blocking worker queue
+            self._push_stream_frame(frame)
 
             # Convert frame to QImage for UI
             rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -182,13 +179,8 @@ class CameraService(QThread):
                 with self.lock:
                     self.latest_frame = frame.copy()
 
-                if self.is_streaming and self.streaming_process:
-                    try:
-                        stream_frame = cv2.resize(frame, (640, 480))
-                        self.streaming_process.stdin.write(stream_frame.tobytes())
-                    except Exception as e:
-                        logger.error("Error writing frame to stream process: %s", e)
-                        self.stop_streaming()
+                # If streaming is enabled, push frame to non-blocking worker queue
+                self._push_stream_frame(frame)
 
                 rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 h, w, ch = rgb_image.shape
@@ -237,13 +229,8 @@ class CameraService(QThread):
             with self.lock:
                 self.latest_frame = frame.copy()
 
-            # If streaming is enabled, write frame to FFmpeg subprocess
-            if self.is_streaming and self.streaming_process:
-                try:
-                    self.streaming_process.stdin.write(frame.tobytes())
-                except Exception as e:
-                    logger.error("Error writing simulated frame to stream process: %s", e)
-                    self.stop_streaming()
+            # If streaming is enabled, push frame to non-blocking worker queue
+            self._push_stream_frame(frame)
                 
             rgb_image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             q_img = QImage(rgb_image.data, w, h, ch * w, QImage.Format_RGB888)
@@ -253,6 +240,35 @@ class CameraService(QThread):
             counter += 1
         
         self.stop_streaming()
+
+    def _push_stream_frame(self, frame):
+        if self.is_streaming and hasattr(self, 'stream_queue'):
+            try:
+                stream_frame = cv2.resize(frame, (640, 480))
+                if self.stream_queue.full():
+                    try:
+                        self.stream_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                self.stream_queue.put_nowait(stream_frame)
+            except Exception:
+                pass
+
+    def _stream_worker_loop(self):
+        logger.info("Streaming background worker started.")
+        while self.is_streaming and self.streaming_process:
+            try:
+                frame = self.stream_queue.get(timeout=0.2)
+                if self.streaming_process and self.streaming_process.stdin:
+                    self.streaming_process.stdin.write(frame.tobytes())
+                    self.streaming_process.stdin.flush()
+            except queue.Empty:
+                continue
+            except Exception as e:
+                logger.error("Error writing frame to stream process: %s", e)
+                self.stop_streaming()
+                break
+        logger.info("Streaming background worker finished.")
 
     def start_streaming(self, host, port):
         if self.is_streaming:
@@ -280,9 +296,25 @@ class CameraService(QThread):
         ]
         
         try:
-            # Launch FFmpeg process with stdin piping
-            self.streaming_process = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+            while not self.stream_queue.empty():
+                try:
+                    self.stream_queue.get_nowait()
+                except queue.Empty:
+                    break
+
+            # Launch FFmpeg process with stdout/stderr redirected to DEVNULL to prevent blocking pipe
+            self.streaming_process = subprocess.Popen(
+                cmd, 
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
             self.is_streaming = True
+            
+            # Launch background streaming worker thread so camera thread NEVER blocks
+            self.stream_thread = threading.Thread(target=self._stream_worker_loop, daemon=True)
+            self.stream_thread.start()
+
             logger.info("Started RTSP streaming to: %s", rtsp_url)
             return rtsp_url
         except Exception as e:
@@ -292,10 +324,12 @@ class CameraService(QThread):
             return None
 
     def stop_streaming(self):
+        self.is_streaming = False
         if self.streaming_process:
             logger.info("Stopping RTSP streaming process...")
             try:
-                self.streaming_process.stdin.close()
+                if self.streaming_process.stdin:
+                    self.streaming_process.stdin.close()
                 self.streaming_process.terminate()
                 self.streaming_process.wait(timeout=2)
             except Exception as e:

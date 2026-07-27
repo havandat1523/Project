@@ -52,7 +52,10 @@ class MQTTClient:
             17: "driver/enroll",
             18: "driver/enroll/ack",
             19: "system/heartbeat",
-            20: "command"
+            20: "command",
+            21: "vehicle/status/request",
+            22: "vehicle/status/response",
+            23: "student/scan/ack"
         }
 
     def start(self):
@@ -63,7 +66,7 @@ class MQTTClient:
             logger.info("Connecting to MQTT Broker at %s:%d...", config.MQTT_BROKER_HOST, config.MQTT_BROKER_PORT)
         except Exception as e:
             logger.error("Failed to connect to MQTT broker: %s. Loop will automatically retry.", e)
-            self.client.loop_start() # Client loop handles automatic reconnection
+            self.client.loop_start()
             
         # Start Outbox replay thread
         self.outbox_thread = threading.Thread(target=self.outbox_worker, daemon=True)
@@ -74,19 +77,16 @@ class MQTTClient:
             self.is_connected = True
             logger.info("Connected to MQTT Broker successfully!")
             
-            # Subscribe to Acks and Commands
-            # Topics:
-            # schoolbus/{vehicle_id}/driver/login/ack
-            # schoolbus/{vehicle_id}/driver/logout/ack
-            # schoolbus/{vehicle_id}/attendant/login/ack
-            # schoolbus/{vehicle_id}/attendant/logout/ack
-            # schoolbus/{vehicle_id}/driver/enroll/ack
-            # schoolbus/{vehicle_id}/command
             base_topic = f"schoolbus/{config.VEHICLE_ID}"
             self.client.subscribe(f"{base_topic}/driver/+/ack")
             self.client.subscribe(f"{base_topic}/attendant/+/ack")
+            self.client.subscribe(f"{base_topic}/student/+/ack")
+            self.client.subscribe(f"{base_topic}/vehicle/status/response")
             self.client.subscribe(f"{base_topic}/command")
             logger.info("Subscribed to command & acknowledgement topics")
+
+            # Send vehicle_status_request (type=21) upon connection
+            self.publish_message(21, {}, priority=1)
         else:
             logger.error("Connect failed with code %d", rc)
 
@@ -101,7 +101,6 @@ class MQTTClient:
         
         try:
             envelope = json.loads(payload_str)
-            # Verify signature
             if not verify_envelope(envelope):
                 logger.warning("Received invalid signature on topic %s! Dropping message.", topic)
                 return
@@ -128,6 +127,12 @@ class MQTTClient:
             elif msg_type == 20: # server command
                 if self.callback_handler and hasattr(self.callback_handler, "on_server_command"):
                     self.callback_handler.on_server_command(data)
+            elif msg_type == 22: # vehicle status response
+                if self.callback_handler and hasattr(self.callback_handler, "on_vehicle_status_ack"):
+                    self.callback_handler.on_vehicle_status_ack(data)
+            elif msg_type == 23: # student scan ack (destination update)
+                if self.callback_handler and hasattr(self.callback_handler, "on_student_scan_ack"):
+                    self.callback_handler.on_student_scan_ack(data)
                     
         except Exception as e:
             logger.error("Error processing MQTT message: %s", e)

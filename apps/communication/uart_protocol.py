@@ -41,7 +41,7 @@ class UARTThread(QThread):
             logger.info("Connected to STM32 Master on port %s", config.UART_MASTER_PORT)
             self.simulation_mode = False
         except serial.SerialException as e:
-            logger.error("Failed to connect to STM32 Master: %s. Entering SIMULATION mode.", e)
+            logger.warning("Could not connect to UART port %s (%s). Will retry continuously. (Use standalone stm32_sim.py tool for simulation).", config.UART_MASTER_PORT, e)
             self.simulation_mode = True
 
     def send_frame(self, main_evt: int, sub_evt: int, data: bytes = b""):
@@ -67,20 +67,14 @@ class UARTThread(QThread):
                     logger.debug("Sent UART frame: %s", frame.hex().upper())
                 except serial.SerialException as e:
                     logger.error("Error writing to serial: %s", e)
-            elif self.simulation_mode:
-                logger.debug("SIMULATION UART frame sent: %s", frame.hex().upper())
 
     def run(self):
         self.running = True
         self.open_port()
-        
-        if self.simulation_mode:
-            self.run_simulation()
-            return
 
         while self.running:
             if not self.ser or not self.ser.is_open:
-                time.sleep(1)
+                time.sleep(2)
                 self.open_port()
                 continue
                 
@@ -188,37 +182,6 @@ class UARTThread(QThread):
                 self.dht11_received.emit(temp, humid)
             except Exception as e:
                 logger.error("Failed to parse DHT11 telemetry: %s", e)
-
-    def run_simulation(self):
-        """
-        Emits dummy data in simulation mode so that UI can be tested on PC.
-        """
-        logger.info("Starting UART Simulation background loop...")
-        
-        # Initial seats states
-        sim_seats = {str(i): 0 for i in range(1, 17)}
-        sim_seats["1"] = 1 # driver seat is occupied
-        sim_seats["2"] = 1 # attendant seat is occupied
-        
-        counter = 0
-        while self.running:
-            # Send GPS
-            # Simulate a small route in Hanoi
-            lat = 21.0021 + 0.0001 * (counter % 30)
-            lon = 105.8462 + 0.00015 * (counter % 30)
-            speed = 30.0 + (counter % 10)
-            self.gps_received.emit(lat, lon, speed)
-            
-            # Send seats periodically
-            if counter % 5 == 0:
-                self.seats_received.emit(sim_seats)
-                
-            # Send DHT11
-            if counter % 8 == 0:
-                self.dht11_received.emit(29.5 + (counter % 2), 65.0 - (counter % 3))
-                
-            time.sleep(2)
-            counter += 1
 
     def stop(self):
         self.running = False
