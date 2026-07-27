@@ -713,9 +713,10 @@ class BusMonitoringApp(QMainWindow):
         self.student_scan_ack_signal.connect(self._handle_student_scan_ack)
         
         self.uart.seats_received.connect(self.on_seats_received)
-        self.uart.rfid_scanned.connect(self.on_rfid_received)
-        self.uart.sos_triggered.connect(self.on_sos_received)
+        self.uart.rfid_received.connect(self.on_rfid_received)
+        self.uart.sos_received.connect(self.on_sos_received)
         self.uart.dht11_received.connect(self.on_dht11_received)
+        self.uart.gps_received.connect(self.on_gps_received)
 
     @pyqtSlot(dict)
     def on_seats_received(self, seats_dict):
@@ -751,6 +752,14 @@ class BusMonitoringApp(QMainWindow):
     @pyqtSlot()
     def on_sos_received(self):
         self.sos_click()
+
+    @pyqtSlot(float, float, float)
+    def on_gps_received(self, lat, lon, speed):
+        self.current_speed = speed
+        self.speed_lbl.setText(f"{speed:.1f} Km/h")
+        self.boarding.update_gps(lat, lon, speed)
+        if hasattr(self, "map_view") and WEB_ENGINE_AVAILABLE:
+            self.map_view.page().runJavaScript(f"updateMapLocation({lat:.6f}, {lon:.6f}, {speed:.1f});")
 
     @pyqtSlot(float, float)
     def on_dht11_received(self, temp, humid):
