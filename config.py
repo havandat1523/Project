@@ -24,7 +24,20 @@ class Config:
     MQTT_USERNAME = env_vars.get("MQTT_USERNAME", os.getenv("MQTT_USERNAME", "pi_29B12345"))
     MQTT_PASSWORD = env_vars.get("MQTT_PASSWORD", os.getenv("MQTT_PASSWORD", "changeme"))
     SERVER_API_BASE_URL = env_vars.get("SERVER_API_BASE_URL", os.getenv("SERVER_API_BASE_URL", "http://localhost:8000"))
-    UART_MASTER_PORT = env_vars.get("UART_MASTER_PORT", os.getenv("UART_MASTER_PORT", "COM3"))
+    # Default UART port: auto-fallback to Linux serial ports if on Linux/Raspberry Pi
+    default_uart = "COM3" if os.name == "nt" else "/tmp/ttyVIRTUAL_PI"
+    UART_MASTER_PORT = env_vars.get("UART_MASTER_PORT", os.getenv("UART_MASTER_PORT", default_uart))
+    if os.name != "nt" and UART_MASTER_PORT.startswith("COM"):
+        # Automatically use virtual PTY or Linux serial port if port was configured for Windows
+        if os.path.exists("/tmp/ttyVIRTUAL_PI"):
+            UART_MASTER_PORT = "/tmp/ttyVIRTUAL_PI"
+        elif os.path.exists("/dev/ttyAMA0"):
+            UART_MASTER_PORT = "/dev/ttyAMA0"
+        elif os.path.exists("/dev/ttyUSB0"):
+            UART_MASTER_PORT = "/dev/ttyUSB0"
+        else:
+            UART_MASTER_PORT = "/tmp/ttyVIRTUAL_PI"
+
     UART_MASTER_BAUDRATE = int(env_vars.get("UART_MASTER_BAUDRATE", os.getenv("UART_MASTER_BAUDRATE", "115200")))
     FACE_VECTOR_DIM = int(env_vars.get("FACE_VECTOR_DIM", os.getenv("FACE_VECTOR_DIM", "128")))
     PRESENCE_CHECK_INTERVAL_SEC = int(env_vars.get("PRESENCE_CHECK_INTERVAL_SEC", os.getenv("PRESENCE_CHECK_INTERVAL_SEC", "180")))

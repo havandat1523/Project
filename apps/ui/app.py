@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QLabel, QPushButton, QGridLayout, 
                              QMessageBox, QFrame, QTextEdit, QComboBox, QStackedWidget, QDialog)
 from PyQt5.QtCore import pyqtSlot, pyqtSignal, Qt, QTimer
-from PyQt5.QtGui import QImage, QPixmap, QFont
+from PyQt5.QtGui import QImage, QPixmap, QFont, QPainter, QPen, QColor
 from config import config
 from services.logger import get_logger
 
@@ -160,6 +160,60 @@ class SOSAlertDialog(QDialog):
                 margin-top: 8px;
             }
             QPushButton:hover { background-color: #ef4444; }
+        """)
+        btn.clicked.connect(self.accept)
+        c_layout.addWidget(btn)
+        
+        main_layout.addWidget(container)
+
+
+# Custom Dialog Popup for Session Verification ("ĐANG KIỂM TRA PHIÊN LÀM VIỆC")
+class SessionCheckDialog(QDialog):
+    def __init__(self, driver_name, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("ĐANG XÁC NHẬN PHIÊN LÀM VIỆC")
+        self.setFixedSize(520, 300)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        
+        container = QFrame()
+        container.setStyleSheet("background-color: #ffffff; border: 3px solid #0284c7; border-radius: 20px;")
+        c_layout = QVBoxLayout(container)
+        c_layout.setContentsMargins(25, 20, 25, 20)
+        
+        icon_lbl = QLabel("⏳")
+        icon_lbl.setAlignment(Qt.AlignCenter)
+        icon_lbl.setFont(QFont("Segoe UI Emoji", 38))
+        icon_lbl.setStyleSheet("border: none;")
+        c_layout.addWidget(icon_lbl)
+        
+        title_lbl = QLabel("ĐANG KIỂM TRA PHIÊN LÀM VIỆC")
+        title_lbl.setAlignment(Qt.AlignCenter)
+        title_lbl.setFont(QFont("Arial", 15, QFont.Bold))
+        title_lbl.setStyleSheet("color: #0369a1; border: none; margin-bottom: 5px;")
+        c_layout.addWidget(title_lbl)
+        
+        txt = QLabel(f"Hệ thống đang chờ Trung tâm Quản lý xác nhận phiên làm việc dở dang của tài xế <b>{driver_name}</b>...")
+        txt.setWordWrap(True)
+        txt.setAlignment(Qt.AlignCenter)
+        txt.setFont(QFont("Arial", 11))
+        txt.setStyleSheet("color: #4b5563; border: none; margin-bottom: 10px;")
+        c_layout.addWidget(txt)
+        
+        btn = QPushButton("ĐÃ HIỂU - CHỜ TRUNG TÂM XÁC NHẬN")
+        btn.setFont(QFont("Arial", 11, QFont.Bold))
+        btn.setStyleSheet("""
+            QPushButton {
+                background-color: #0284c7;
+                color: #ffffff;
+                border: none;
+                border-radius: 12px;
+                padding: 12px;
+            }
+            QPushButton:hover { background-color: #0369a1; }
         """)
         btn.clicked.connect(self.accept)
         c_layout.addWidget(btn)
@@ -893,7 +947,14 @@ class BusMonitoringApp(QMainWindow):
 
     def _handle_vehicle_status_ack(self, data):
         session_state = data.get("session_state", 0)
-        if session_state == 2: # RESUMED
+        self.badge_db.setText("🛢️ CONNECTED")
+        self.badge_db.setStyleSheet("background-color: #ffffff; color: #16a34a; border: 1px solid #93c5fd; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
+        
+        if session_state == 1: # PENDING_CONFIRM
+            driver_name = data.get("existing_driver_name", "Tài xế cũ")
+            dlg = SessionCheckDialog(driver_name, self)
+            dlg.exec_()
+        elif session_state == 2: # RESUMED
             driver_id = data.get("driver_id")
             name = data.get("driver_full_name")
             self.session.process_driver_login(driver_id, name)
