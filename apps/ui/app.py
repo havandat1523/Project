@@ -939,6 +939,11 @@ class BusMonitoringApp(QMainWindow):
             self.session.process_driver_login(driver_id, name)
             self.stack.setCurrentIndex(1)
             self.update_status_labels()
+        elif session_state == 3:
+            self.session.process_driver_logout()
+            self.stack.setCurrentIndex(0)
+            self.update_status_labels()
+            QMessageBox.warning(self, "Thông báo từ Trung tâm", "Phiên làm việc đã bị Trung tâm Quản lý hủy bỏ. Vui lòng Đăng nhập lại.")
 
     def _handle_student_scan_ack(self, data):
         next_id = data.get("next_student_id")
