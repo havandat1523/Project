@@ -23,7 +23,7 @@ class Config:
     MQTT_BROKER_PORT = int(env_vars.get("MQTT_BROKER_PORT", os.getenv("MQTT_BROKER_PORT", "1883")))
     MQTT_USERNAME = env_vars.get("MQTT_USERNAME", os.getenv("MQTT_USERNAME", "pi_29B12345"))
     MQTT_PASSWORD = env_vars.get("MQTT_PASSWORD", os.getenv("MQTT_PASSWORD", "changeme"))
-    SERVER_API_BASE_URL = env_vars.get("SERVER_API_BASE_URL", os.getenv("SERVER_API_BASE_URL", "http://localhost:8000"))
+    SERVER_API_BASE_URL = env_vars.get("SERVER_API_BASE_URL", os.getenv("SERVER_API_BASE_URL", "http://192.168.137.1:8000"))
     # Default UART port: auto-fallback to Linux serial ports if on Linux/Raspberry Pi
     default_uart = "COM3" if os.name == "nt" else "/tmp/ttyVIRTUAL_PI"
     UART_MASTER_PORT = env_vars.get("UART_MASTER_PORT", os.getenv("UART_MASTER_PORT", default_uart))
