@@ -186,12 +186,14 @@ class SOSAlertDialog(QDialog):
         c_layout.addWidget(btn)
         main_layout.addWidget(container)
 
-# Custom Dialog Popup for Session Verification ("ĐANG KIỂM TRA PHIÊN LÀM VIỆC")
-class SessionCheckDialog(QDialog):
-    def __init__(self, driver_name, parent=None):
+# Custom Dialog Popup for Driver Logout with Camera Frame Alignment (Slide 11 design_do_an.pdf)
+class DriverLogoutDialog(QDialog):
+    def __init__(self, camera_service, auth_service, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("ĐANG XÁC NHẬN PHIÊN LÀM VIỆC")
-        self.setFixedSize(520, 300)
+        self.camera = camera_service
+        self.auth = auth_service
+        self.setWindowTitle("XÁC THỰC KHUÔN MẶT ĐĂNG XUẤT")
+        self.setFixedSize(520, 480)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
         self.setAttribute(Qt.WA_TranslucentBackground)
         
@@ -199,25 +201,138 @@ class SessionCheckDialog(QDialog):
         main_layout.setContentsMargins(15, 15, 15, 15)
         
         container = QFrame()
-        container.setStyleSheet("background-color: #ffffff; border: 3px solid #0284c7; border-radius: 20px;")
+        container.setStyleSheet("background-color: #ffffff; border: 3px solid #ea580c; border-radius: 20px;")
         c_layout = QVBoxLayout(container)
-        c_layout.setContentsMargins(25, 20, 25, 20)
+        c_layout.setContentsMargins(20, 20, 20, 20)
         
-        icon_lbl = QLabel("[ WAIT ]")
-        icon_lbl.setAlignment(Qt.AlignCenter)
-        icon_lbl.setFont(QFont("Arial", 28, QFont.Bold))
-        icon_lbl.setStyleSheet("color: #0284c7; border: none;")
-        c_layout.addWidget(icon_lbl)
+        title = QLabel("XÁC THỰC KHUÔN MẶT ĐĂNG XUẤT")
+        title.setFont(QFont("Arial", 14, QFont.Bold))
+        title.setStyleSheet("color: #ea580c; border: none; margin-bottom: 5px;")
+        title.setAlignment(Qt.AlignCenter)
+        c_layout.addWidget(title)
         
-        title_lbl = QLabel("ĐANG KIỂM TRA PHIÊN LÀM VIỆC")
-        title_lbl.setAlignment(Qt.AlignCenter)
-        title_lbl.setFont(QFont("Arial", 15, QFont.Bold))
-        title_lbl.setStyleSheet("color: #0369a1; border: none; margin-bottom: 5px;")
-        c_layout.addWidget(title_lbl)
+        self.cam_lbl = QLabel()
+        self.cam_lbl.setFixedSize(440, 280)
+        self.cam_lbl.setStyleSheet("background-color: #0f172a; border-radius: 12px; border: 2px solid #ea580c;")
+        self.cam_lbl.setAlignment(Qt.AlignCenter)
+        c_layout.addWidget(self.cam_lbl, alignment=Qt.AlignCenter)
         
-        txt = QLabel(f"Hệ thống đang chờ Trung tâm Quản lý xác nhận phiên làm việc dở dang của tài xế <b>{driver_name}</b>...")
-        txt.setWordWrap(True)
-        txt.setAlignment(Qt.AlignCenter)
+        btn_box = QHBoxLayout()
+        self.btn_cancel = QPushButton("HỦY BỎ")
+        self.btn_cancel.setFont(QFont("Arial", 12, QFont.Bold))
+        self.btn_cancel.setStyleSheet("background-color: #64748b; color: white; border: none; padding: 12px; border-radius: 10px;")
+        
+        self.btn_confirm = QPushButton("XÁC NHẬN ĐĂNG XUẤT")
+        self.btn_confirm.setFont(QFont("Arial", 12, QFont.Bold))
+        self.btn_confirm.setStyleSheet("background-color: #ea580c; color: white; border: none; padding: 12px; border-radius: 10px;")
+        
+        btn_box.addWidget(self.btn_cancel)
+        btn_box.addWidget(self.btn_confirm)
+        c_layout.addLayout(btn_box)
+        
+        main_layout.addWidget(container)
+        
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_frame)
+        self.timer.start(50)
+        
+        self.btn_cancel.clicked.connect(self.reject)
+        self.btn_confirm.clicked.connect(self.do_logout_verify)
+        
+    def update_frame(self):
+        if not self.camera: return
+        frame = self.camera.latest_frame
+        if frame is not None:
+            h, w, ch = frame.shape
+            bytes_per_line = ch * w
+            q_img = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
+            q_img_draw = QImage(q_img)
+            
+            painter = QPainter(q_img_draw)
+            pen = QPen(QColor(22, 163, 74), 3, Qt.DashLine)
+            painter.setPen(pen)
+            
+            box_w, box_h = int(w * 0.45), int(h * 0.55)
+            box_x, box_y = (w - box_w) // 2, (h - box_h) // 2
+            painter.drawRoundedRect(box_x, box_y, box_w, box_h, 16, 16)
+            
+            painter.setPen(QColor(234, 88, 12))
+            painter.setFont(QFont("Arial", 12, QFont.Bold))
+            painter.drawText(box_x, box_y - 10, "CĂN KHUÔN MẶT ĐỂ ĐĂNG XUẤT")
+            painter.end()
+            
+            pix = QPixmap.fromImage(q_img_draw).scaled(440, 280, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.cam_lbl.setPixmap(pix)
+            
+    def do_logout_verify(self):
+        self.timer.stop()
+        vec = self.camera.capture_face_vector()
+        if vec is not None and self.auth.verify_driver_presence(vec):
+            self.accept()
+        else:
+            QMessageBox.critical(self, "Xác thực thất bại", "Khuôn mặt đăng xuất không khớp với tài xế hiện tại!")
+            self.timer.start(50)
+
+# Custom GPS Map View Canvas Widget for Pi UI
+class GPSMapView(QFrame):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet("background-color: #0f172a; border-radius: 12px; border: 1px solid #334155;")
+        self.lat = 21.003118
+        self.lon = 105.845899
+        self.speed = 0.0
+        
+    def set_location(self, lat, lon, speed):
+        self.lat = lat
+        self.lon = lon
+        self.speed = speed
+        self.update()
+        
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        w, h = self.width(), self.height()
+        
+        # Grid lines (simulate road map grid)
+        pen = QPen(QColor(51, 65, 85), 1, Qt.DotLine)
+        painter.setPen(pen)
+        for x in range(0, w, 40):
+            painter.drawLine(x, 0, x, h)
+        for y in range(0, h, 40):
+            painter.drawLine(0, y, w, y)
+            
+        # Draw main avenue road
+        pen_road = QPen(QColor(71, 85, 105), 24, Qt.SolidLine)
+        painter.setPen(pen_road)
+        painter.drawLine(0, int(h * 0.5), w, int(h * 0.5))
+        painter.drawLine(int(w * 0.4), 0, int(w * 0.4), h)
+        
+        # Road center dash lines
+        pen_dash = QPen(QColor(254, 240, 138), 2, Qt.DashLine)
+        painter.setPen(pen_dash)
+        painter.drawLine(0, int(h * 0.5), w, int(h * 0.5))
+        painter.drawLine(int(w * 0.4), 0, int(w * 0.4), h)
+        
+        # Bus Icon Marker
+        bus_x, bus_y = int(w * 0.4), int(h * 0.5)
+        painter.setBrush(QColor(234, 88, 12))
+        painter.setPen(QPen(QColor(255, 255, 255), 2))
+        painter.drawEllipse(bus_x - 14, bus_y - 14, 28, 28)
+        
+        painter.setPen(QColor(255, 255, 255))
+        painter.setFont(QFont("Arial", 10, QFont.Bold))
+        painter.drawText(bus_x - 10, bus_y + 5, "BUS")
+        
+        # Telemetry Info Overlay Badge
+        painter.setBrush(QColor(15, 23, 42, 220))
+        painter.setPen(QPen(QColor(51, 65, 85), 1))
+        painter.drawRoundedRect(12, 12, 260, 50, 8, 8)
+        
+        painter.setPen(QColor(226, 232, 240))
+        painter.setFont(QFont("Consolas", 10, QFont.Bold))
+        painter.drawText(22, 32, f"GPS: {self.lat:.6f}°N, {self.lon:.6f}°E")
+        painter.drawText(22, 50, f"SPEED: {self.speed:.1f} km/h | MAP: LIVE")
         txt.setFont(QFont("Arial", 11))
         txt.setStyleSheet("color: #4b5563; border: none; margin-bottom: 10px;")
         c_layout.addWidget(txt)
@@ -558,7 +673,7 @@ class BusMonitoringApp(QMainWindow):
         dest_overlay.setStyleSheet("background-color: #ffffff; border-radius: 10px; border: 1px solid #e2e8f0; padding: 8px 14px;")
         d_o_layout = QHBoxLayout(dest_overlay)
         
-        self.dest_title_lbl = QLabel("ĐIỂM ĐẾN: LK6D – NGUYỄN VĂN LỘC")
+        self.dest_title_lbl = QLabel("ĐIỂM ĐẾN: Chờ thông tin điểm đón tiếp theo...")
         self.dest_title_lbl.setFont(QFont("Arial", 12, QFont.Bold))
         self.dest_title_lbl.setStyleSheet("color: #0f172a;")
         
@@ -612,10 +727,7 @@ class BusMonitoringApp(QMainWindow):
             self.map_view.setHtml(map_html)
             map_c_layout.addWidget(self.map_view)
         else:
-            self.map_view = QLabel("OpenStreetMap Tracking Active")
-            self.map_view.setAlignment(Qt.AlignCenter)
-            self.map_view.setFont(QFont("Arial", 14, QFont.Bold))
-            self.map_view.setStyleSheet("color: #0284c7;")
+            self.map_view = GPSMapView()
             map_c_layout.addWidget(self.map_view)
             
         l_layout.addWidget(self.map_container, 3)
@@ -866,102 +978,32 @@ class BusMonitoringApp(QMainWindow):
             dlg.exec_()
             return
             
-        self.logout_face_worker = FaceVectorWorker(self.camera)
-        self.logout_face_worker.vector_ready.connect(self.on_logout_face_captured)
-        self.logout_face_worker.start()
-
-    def on_logout_face_captured(self, vector):
-        if vector is not None and self.auth.verify_driver_presence(vector):
+        dlg = DriverLogoutDialog(self.camera, self.auth, self)
+        if dlg.exec_() == QDialog.Accepted:
             self.mqtt.publish_message(3, {}, priority=1)
             self.session.process_driver_logout()
             self.stack.setCurrentIndex(0)
             self.update_status_labels()
-        else:
-            QMessageBox.critical(self, "Lỗi xác thực", "Khuôn mặt đăng xuất không khớp!")
 
-    def sos_click(self):
-        self.uart.send_frame(0x07, 0x01)
-        self.mqtt.publish_message(15, {"lat": 21.0021, "lon": 105.8462, "triggered_by": 1, "seat_number": 1}, priority=2)
-        dlg = SOSAlertDialog(21.0021, 105.8462, self)
-        dlg.exec_()
-
-    def update_status_labels(self):
-        if self.mqtt.is_connected:
-            set_badge_active(self.frame_wifi, self.badge_wifi, is_active=True, text="WIFI: CONNECTED")
-        else:
-            set_badge_active(self.frame_wifi, self.badge_wifi, is_active=False, text="WIFI: DISCONNECTED")
-
-        if self.auth.active_driver:
-            d_name = self.auth.active_driver.get("full_name", "Tài xế")
-            d_id = self.auth.active_driver.get("driver_id", "DR_001")
-            d_lic = self.auth.active_driver.get("license_class", "B2")
-            self.tx_info.setText(f"{d_name}\nMã: {d_id} . Bằng: {d_lic}")
-        else:
-            self.tx_info.setText("Chưa đăng nhập\nMã: ---")
-            
-        if self.auth.active_attendant:
-            att_name = self.auth.active_attendant.get("full_name", "Phụ xe")
-            att_id = self.auth.active_attendant.get("attendant_id", "PX001")
-            self.px_info.setText(f"{att_name}\nMã: {att_id}")
-        else:
-            self.px_info.setText("Chưa đăng nhập\nMã: ---")
-
-        onboard_count = sum(1 for i in range(3, 17) if self.latest_seats_state.get(str(i), 0) == 1)
-        self.val_students.setText(f"{onboard_count} / 14")
-        self.val_phase.setText(getattr(self.boarding, "trip_phase", "PICKUP"))
-
-    # MQTT Callbacks
-    def _handle_driver_login_ack(self, data):
-        res = data.get("result", 0)
-        if res == 1:
-            name = data.get("full_name", "Tài xế")
-            driver_id = data.get("driver_id", "DR_001")
-            self.uart.send_frame(0x01, 0x01, driver_id.encode("ascii"))
-            self.session.process_driver_login(driver_id, name)
-            self.stack.setCurrentIndex(1)
-            self.update_status_labels()
-        else:
-            self.uart.send_frame(0x01, 0x02)
-            self.login_error_toast.setText("LOGIN FAILED - Không khớp khuôn mặt")
-            self.login_error_toast.show()
-
-    def _handle_vehicle_status_ack(self, data):
-        session_state = data.get("session_state", 0)
-        set_badge_active(self.frame_db, self.badge_db, is_active=True, text="DB: CONNECTED")
-        
-        if session_state == 1:
-            driver_name = data.get("existing_driver_name", "Tài xế cũ")
-            dlg = SessionCheckDialog(driver_name, self)
-            dlg.exec_()
-        elif session_state == 2:
-            driver_id = data.get("driver_id")
-            name = data.get("driver_full_name")
-            self.session.process_driver_login(driver_id, name)
-            self.stack.setCurrentIndex(1)
-            self.update_status_labels()
-        elif session_state == 3:
-            self.session.process_driver_logout()
-            self.stack.setCurrentIndex(0)
-            self.update_status_labels()
-            QMessageBox.warning(self, "Thông báo từ Trung tâm", "Phiên làm việc đã bị Trung tâm Quản lý hủy bỏ. Vui lòng Đăng nhập lại.")
-
-    def _handle_student_scan_ack(self, data):
-        next_id = data.get("next_student_id")
-        next_name = data.get("next_student_name", "---")
-        next_addr = data.get("next_address", "---")
-        self.dest_title_lbl.setText(f"ĐIỂM ĐẾN: {next_name} – {next_addr}")
-        
-        if next_id is None:
-            phase = getattr(self.boarding, "trip_phase", "PICKUP")
-            if phase == "PICKUP":
-                self.uart.send_frame(0x05, 0x03)
-            elif phase == "DROPOFF":
-                self.uart.send_frame(0x05, 0x04)
-
-    def _handle_driver_logout_ack(self, data): pass
-    def _handle_attendant_login_ack(self, data): pass
-    def _handle_attendant_logout_ack(self, data): pass
-    def _handle_server_command(self, data): pass
+    def _handle_server_command(self, data):
+        action = data.get("action")
+        if action == "start_stream":
+            host = data.get("stream_host", "192.168.137.1")
+            port = data.get("stream_port", 8554)
+            url = self.camera.start_streaming(host, port)
+            status = "active" if url else "inactive"
+            self.mqtt.publish_message(20, {
+                "action": "stream_status",
+                "status": status,
+                "stream_url": url or ""
+            }, priority=1)
+        elif action == "stop_stream":
+            self.camera.stop_streaming()
+            self.mqtt.publish_message(20, {
+                "action": "stream_status",
+                "status": "inactive",
+                "stream_url": ""
+            }, priority=1)
 
     # MQTT Callback Entry Points (called from MQTTClient background thread -> emit Qt signals)
     def on_driver_login_ack(self, data):
