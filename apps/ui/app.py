@@ -3,8 +3,8 @@ import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QLabel, QPushButton, QGridLayout, 
                              QMessageBox, QFrame, QTextEdit, QComboBox, QStackedWidget, QDialog)
-from PyQt5.QtCore import pyqtSlot, pyqtSignal, Qt, QTimer
-from PyQt5.QtGui import QImage, QPixmap, QFont, QPainter, QPen, QColor
+from PyQt5.QtCore import pyqtSlot, pyqtSignal, Qt, QTimer, QSize
+from PyQt5.QtGui import QImage, QPixmap, QFont, QPainter, QPen, QColor, QIcon
 from config import config
 from services.logger import get_logger
 
@@ -17,6 +17,36 @@ except ImportError:
     WEB_ENGINE_AVAILABLE = False
 
 logger = get_logger("UI")
+
+def make_icon_badge(icon_filename, default_text, is_active=False):
+    frame = QFrame()
+    layout = QHBoxLayout(frame)
+    layout.setContentsMargins(6, 4, 10, 4)
+    layout.setSpacing(6)
+    
+    icon_path = os.path.join(config.BASE_DIR, "image", icon_filename)
+    if os.path.exists(icon_path):
+        icon_lbl = QLabel()
+        pix = QPixmap(icon_path).scaledToHeight(20, Qt.SmoothTransformation)
+        icon_lbl.setPixmap(pix)
+        layout.addWidget(icon_lbl)
+        
+    txt_lbl = QLabel(default_text)
+    txt_lbl.setFont(QFont("Arial", 10, QFont.Bold))
+    layout.addWidget(txt_lbl)
+    
+    set_badge_active(frame, txt_lbl, is_active)
+    return frame, txt_lbl
+
+def set_badge_active(frame, txt_lbl, is_active, text=None):
+    if text:
+        txt_lbl.setText(text)
+    if is_active:
+        frame.setStyleSheet("QFrame { background-color: #ffffff; border: 1px solid #86efac; border-radius: 8px; padding: 2px 6px; }")
+        txt_lbl.setStyleSheet("color: #16a34a; font-weight: bold; font-size: 11px;")
+    else:
+        frame.setStyleSheet("QFrame { background-color: #ffffff; border: 1px solid #fca5a5; border-radius: 8px; padding: 2px 6px; }")
+        txt_lbl.setStyleSheet("color: #dc2626; font-weight: bold; font-size: 11px;")
 
 # Custom Dialog Popup for Slide 10: Cannot Logout Warning
 class CannotLogoutDialog(QDialog):
@@ -355,26 +385,20 @@ class BusMonitoringApp(QMainWindow):
         
         header_layout.addStretch()
         
-        self.badge_gnss = QLabel("GNSS: OFF")
-        self.badge_gnss.setStyleSheet("background-color: #ffffff; color: #dc2626; border: 1px solid #fca5a5; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
-        
-        self.badge_cam = QLabel("CAM: READY")
-        self.badge_cam.setStyleSheet("background-color: #ffffff; color: #16a34a; border: 1px solid #93c5fd; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
-        
-        self.badge_wifi = QLabel("WIFI: CONNECTED")
-        self.badge_wifi.setStyleSheet("background-color: #ffffff; color: #16a34a; border: 1px solid #93c5fd; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
-        
-        self.badge_db = QLabel("DB: DISCONNECTED")
-        self.badge_db.setStyleSheet("background-color: #ffffff; color: #dc2626; border: 1px solid #fca5a5; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
+        # Build PNG Image Badges for GNSS, CAM, WIFI, DB
+        self.frame_gnss, self.badge_gnss = make_icon_badge("icongnss.png", "GNSS: OFF", is_active=False)
+        self.frame_cam, self.badge_cam = make_icon_badge("iconcamera.png", "CAM: READY", is_active=True)
+        self.frame_wifi, self.badge_wifi = make_icon_badge("iconwifi.png", "WIFI: CONNECTED", is_active=True)
+        self.frame_db, self.badge_db = make_icon_badge("icondatabase.png", "DB: DISCONNECTED", is_active=False)
         
         self.sos_btn = QPushButton("SOS")
         self.sos_btn.setObjectName("sosTopBtn")
         self.sos_btn.clicked.connect(self.sos_click)
         
-        header_layout.addWidget(self.badge_gnss)
-        header_layout.addWidget(self.badge_cam)
-        header_layout.addWidget(self.badge_wifi)
-        header_layout.addWidget(self.badge_db)
+        header_layout.addWidget(self.frame_gnss)
+        header_layout.addWidget(self.frame_cam)
+        header_layout.addWidget(self.frame_wifi)
+        header_layout.addWidget(self.frame_db)
         header_layout.addWidget(self.sos_btn)
         
         self.root_layout.addWidget(header_frame)
@@ -443,10 +467,17 @@ class BusMonitoringApp(QMainWindow):
         r_layout.addWidget(bus_box)
         
         info_sub = QFrame()
-        info_sub.setStyleSheet("background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px;")
+        info_sub.setStyleSheet("background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px;")
         i_layout = QVBoxLayout(info_sub)
         i_layout.setAlignment(Qt.AlignCenter)
         
+        faceid_path = os.path.join(config.BASE_DIR, "image", "icon_faceid.png")
+        if os.path.exists(faceid_path):
+            face_img_lbl = QLabel()
+            pix = QPixmap(faceid_path).scaledToHeight(48, Qt.SmoothTransformation)
+            face_img_lbl.setPixmap(pix)
+            i_layout.addWidget(face_img_lbl, alignment=Qt.AlignCenter)
+            
         lbl1 = QLabel("Xác thực tài xế")
         lbl1.setFont(QFont("Arial", 12, QFont.Bold))
         lbl1.setStyleSheet("color: #1e2937;")
@@ -459,10 +490,13 @@ class BusMonitoringApp(QMainWindow):
         
         r_layout.addStretch()
         
-        self.login_btn = QPushButton("ĐĂNG NHẬP")
+        self.login_btn = QPushButton("  ĐĂNG NHẬP")
         self.login_btn.setObjectName("orangeBtn")
         self.login_btn.setFont(QFont("Arial", 14, QFont.Bold))
-        self.login_btn.setMinimumHeight(50)
+        self.login_btn.setMinimumHeight(52)
+        if os.path.exists(faceid_path):
+            self.login_btn.setIcon(QIcon(faceid_path))
+            self.login_btn.setIconSize(QSize(26, 26))
         self.login_btn.clicked.connect(self.driver_login_click)
         r_layout.addWidget(self.login_btn)
         
@@ -781,8 +815,7 @@ class BusMonitoringApp(QMainWindow):
     def on_gps_received(self, lat, lon, speed):
         self.current_speed = speed
         self.speed_lbl.setText(f"{speed:.1f} Km/h")
-        self.badge_gnss.setText("GNSS: ACTIVE")
-        self.badge_gnss.setStyleSheet("background-color: #ffffff; color: #16a34a; border: 1px solid #93c5fd; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
+        set_badge_active(self.frame_gnss, self.badge_gnss, is_active=True, text="GNSS: ACTIVE")
         self.boarding.update_gps(lat, lon, speed)
         if hasattr(self, "map_view") and WEB_ENGINE_AVAILABLE:
             self.map_view.page().runJavaScript(f"updateMapLocation({lat:.6f}, {lon:.6f}, {speed:.1f});")
@@ -795,7 +828,7 @@ class BusMonitoringApp(QMainWindow):
 
     def driver_login_click(self):
         self.login_btn.setEnabled(False)
-        self.login_btn.setText("ĐANG QUÉT...")
+        self.login_btn.setText(" ĐANG QUÉT...")
         self.login_error_toast.hide()
         
         self.login_face_worker = FaceVectorWorker(self.camera)
@@ -803,7 +836,7 @@ class BusMonitoringApp(QMainWindow):
         self.login_face_worker.start()
 
     def on_login_face_captured(self, vector):
-        self.login_btn.setText("ĐĂNG NHẬP")
+        self.login_btn.setText(" ĐĂNG NHẬP")
         self.login_btn.setEnabled(True)
         
         if vector is None:
@@ -854,11 +887,9 @@ class BusMonitoringApp(QMainWindow):
 
     def update_status_labels(self):
         if self.mqtt.is_connected:
-            self.badge_wifi.setText("WIFI: CONNECTED")
-            self.badge_wifi.setStyleSheet("background-color: #ffffff; color: #16a34a; border: 1px solid #93c5fd; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
+            set_badge_active(self.frame_wifi, self.badge_wifi, is_active=True, text="WIFI: CONNECTED")
         else:
-            self.badge_wifi.setText("WIFI: DISCONNECTED")
-            self.badge_wifi.setStyleSheet("background-color: #ffffff; color: #dc2626; border: 1px solid #fca5a5; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
+            set_badge_active(self.frame_wifi, self.badge_wifi, is_active=False, text="WIFI: DISCONNECTED")
 
         if self.auth.active_driver:
             d_name = self.auth.active_driver.get("full_name", "Tài xế")
@@ -896,8 +927,7 @@ class BusMonitoringApp(QMainWindow):
 
     def _handle_vehicle_status_ack(self, data):
         session_state = data.get("session_state", 0)
-        self.badge_db.setText("DB: CONNECTED")
-        self.badge_db.setStyleSheet("background-color: #ffffff; color: #16a34a; border: 1px solid #93c5fd; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 11px;")
+        set_badge_active(self.frame_db, self.badge_db, is_active=True, text="DB: CONNECTED")
         
         if session_state == 1:
             driver_name = data.get("existing_driver_name", "Tài xế cũ")
