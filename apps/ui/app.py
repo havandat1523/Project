@@ -957,3 +957,25 @@ class BusMonitoringApp(QMainWindow):
     def _handle_attendant_login_ack(self, data): pass
     def _handle_attendant_logout_ack(self, data): pass
     def _handle_server_command(self, data): pass
+
+    # MQTT Callback Entry Points (called from MQTTClient background thread -> emit Qt signals)
+    def on_driver_login_ack(self, data):
+        self.driver_login_ack_signal.emit(data)
+
+    def on_driver_logout_ack(self, data):
+        self.driver_logout_ack_signal.emit(data)
+
+    def on_attendant_login_ack(self, data):
+        self.attendant_login_ack_signal.emit(data)
+
+    def on_attendant_logout_ack(self, data):
+        self.attendant_logout_ack_signal.emit(data)
+
+    def on_server_command(self, data):
+        self.server_command_signal.emit(data)
+
+    def on_vehicle_status_ack(self, data):
+        self.vehicle_status_ack_signal.emit(data)
+
+    def on_student_scan_ack(self, data):
+        self.student_scan_ack_signal.emit(data)
