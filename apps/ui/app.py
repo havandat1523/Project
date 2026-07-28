@@ -929,8 +929,11 @@ class BusMonitoringApp(QMainWindow):
         self.speed_lbl.setText(f"{speed:.1f} Km/h")
         set_badge_active(self.frame_gnss, self.badge_gnss, is_active=True, text="GNSS: ACTIVE")
         self.boarding.update_gps(lat, lon, speed)
-        if hasattr(self, "map_view") and WEB_ENGINE_AVAILABLE:
-            self.map_view.page().runJavaScript(f"updateMapLocation({lat:.6f}, {lon:.6f}, {speed:.1f});")
+        if hasattr(self, "map_view") and self.map_view:
+            if hasattr(self.map_view, "set_location"):
+                self.map_view.set_location(lat, lon, speed)
+            elif WEB_ENGINE_AVAILABLE:
+                self.map_view.page().runJavaScript(f"updateMapLocation({lat:.6f}, {lon:.6f}, {speed:.1f});")
 
     @pyqtSlot(float, float)
     def on_dht11_received(self, temp, humid):
