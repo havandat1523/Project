@@ -32,6 +32,41 @@ except ImportError:
     PICAMERA2_AVAILABLE = False
     logger.info("Picamera2 library not found. Will use OpenCV / libcamerasrc pipeline.")
 
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
+
+class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+
+class MJPEGStreamHandler(BaseHTTPRequestHandler):
+    camera_service = None
+    
+    def do_GET(self):
+        if self.path in ('/video_feed', '/'):
+            self.send_response(200)
+            self.send_header('Content-type', 'multipart/x-mixed-replace; boundary=frame')
+            self.end_headers()
+            while MJPEGStreamHandler.camera_service and MJPEGStreamHandler.camera_service.is_streaming:
+                frame = MJPEGStreamHandler.camera_service.get_latest_frame()
+                if frame is not None:
+                    ret, jpeg = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+                    if ret:
+                        try:
+                            self.wfile.write(b'--frame\r\n')
+                            self.send_header('Content-type', 'image/jpeg')
+                            self.send_header('Content-length', len(jpeg))
+                            self.end_headers()
+                            self.wfile.write(jpeg.tobytes())
+                            self.wfile.write(b'\r\n')
+                        except Exception:
+                            break
+                time.sleep(0.05)
+        else:
+            self.send_error(404)
+            
+    def log_message(self, format, *args):
+        pass
+
 class CameraService(QThread):
     # Emits frame to UI for streaming
     frame_received = pyqtSignal(QImage)
@@ -269,41 +304,6 @@ class CameraService(QThread):
                 self.stop_streaming()
                 break
         logger.info("Streaming background worker finished.")
-
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from socketserver import ThreadingMixIn
-
-class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
-    daemon_threads = True
-
-class MJPEGStreamHandler(BaseHTTPRequestHandler):
-    camera_service = None
-    
-    def do_GET(self):
-        if self.path in ('/video_feed', '/'):
-            self.send_response(200)
-            self.send_header('Content-type', 'multipart/x-mixed-replace; boundary=frame')
-            self.end_headers()
-            while MJPEGStreamHandler.camera_service and MJPEGStreamHandler.camera_service.is_streaming:
-                frame = MJPEGStreamHandler.camera_service.get_latest_frame()
-                if frame is not None:
-                    ret, jpeg = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
-                    if ret:
-                        try:
-                            self.wfile.write(b'--frame\r\n')
-                            self.send_header('Content-type', 'image/jpeg')
-                            self.send_header('Content-length', len(jpeg))
-                            self.end_headers()
-                            self.wfile.write(jpeg.tobytes())
-                            self.wfile.write(b'\r\n')
-                        except Exception:
-                            break
-                time.sleep(0.05)
-        else:
-            self.send_error(404)
-            
-    def log_message(self, format, *args):
-        pass
 
     def start_streaming(self, protocol="http", host="192.168.137.1", port=8080):
         if self.is_streaming:
