@@ -184,6 +184,48 @@ class SOSAlertDialog(QDialog):
         """)
         btn.clicked.connect(self.accept)
         c_layout.addWidget(btn)
+# Session Check Pending Confirmation Dialog
+class SessionCheckDialog(QDialog):
+    def __init__(self, driver_name="Tài xế", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("XÁC NHẬN PHIÊN LÀM VIỆC")
+        self.setFixedSize(500, 260)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        
+        container = QFrame()
+        container.setStyleSheet("background-color: #ffffff; border: 3px solid #ea580c; border-radius: 20px;")
+        c_layout = QVBoxLayout(container)
+        c_layout.setContentsMargins(20, 20, 20, 20)
+        c_layout.setAlignment(Qt.AlignCenter)
+        
+        icon_lbl = QLabel("⏳")
+        icon_lbl.setFont(QFont("Arial", 36))
+        icon_lbl.setAlignment(Qt.AlignCenter)
+        c_layout.addWidget(icon_lbl)
+        
+        title = QLabel("ĐANG KIỂM TRA PHIÊN LÀM VIỆC")
+        title.setFont(QFont("Arial", 14, QFont.Bold))
+        title.setStyleSheet("color: #ea580c; border: none; margin-bottom: 5px;")
+        title.setAlignment(Qt.AlignCenter)
+        c_layout.addWidget(title)
+        
+        msg = QLabel(f"Tài xế: {driver_name}\nĐang chờ Trung tâm Quản lý duyệt phiên làm việc (Agree / Disagree)...")
+        msg.setFont(QFont("Arial", 11))
+        msg.setStyleSheet("color: #475569; border: none;")
+        msg.setAlignment(Qt.AlignCenter)
+        msg.setWordWrap(True)
+        c_layout.addWidget(msg)
+        
+        btn = QPushButton("ĐÓNG THÔNG BÁO")
+        btn.setFont(QFont("Arial", 11, QFont.Bold))
+        btn.setStyleSheet("background-color: #ea580c; color: white; border: none; padding: 10px 20px; border-radius: 8px; margin-top: 10px;")
+        btn.clicked.connect(self.accept)
+        c_layout.addWidget(btn, alignment=Qt.AlignCenter)
+        
         main_layout.addWidget(container)
 
 # Custom Dialog Popup for Driver Logout with Camera Frame Alignment (Slide 11 design_do_an.pdf)
