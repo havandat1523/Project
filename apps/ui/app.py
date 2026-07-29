@@ -988,6 +988,89 @@ class BusMonitoringApp(QMainWindow):
             self.stack.setCurrentIndex(0)
             self.update_status_labels()
 
+    def sos_click(self):
+        self.uart.send_frame(0x07, 0x01)
+        self.mqtt.publish_message(15, {"lat": 21.0021, "lon": 105.8462, "triggered_by": 1, "seat_number": 1}, priority=2)
+        dlg = SOSAlertDialog(21.0021, 105.8462, self)
+        dlg.exec_()
+
+    def update_status_labels(self):
+        if self.mqtt.is_connected:
+            set_badge_active(self.frame_wifi, self.badge_wifi, is_active=True, text="WIFI: CONNECTED")
+        else:
+            set_badge_active(self.frame_wifi, self.badge_wifi, is_active=False, text="WIFI: DISCONNECTED")
+
+        if self.auth.active_driver:
+            d_name = self.auth.active_driver.get("full_name", "Tài xế")
+            d_id = self.auth.active_driver.get("driver_id", "DR_001")
+            d_lic = self.auth.active_driver.get("license_class", "B2")
+            self.tx_info.setText(f"{d_name}\nMã: {d_id} . Bằng: {d_lic}")
+        else:
+            self.tx_info.setText("Chưa đăng nhập\nMã: ---")
+            
+        if self.auth.active_attendant:
+            att_name = self.auth.active_attendant.get("full_name", "Phụ xe")
+            att_id = self.auth.active_attendant.get("attendant_id", "PX001")
+            self.px_info.setText(f"{att_name}\nMã: {att_id}")
+        else:
+            self.px_info.setText("Chưa đăng nhập\nMã: ---")
+
+        onboard_count = sum(1 for i in range(3, 17) if self.latest_seats_state.get(str(i), 0) == 1)
+        self.val_students.setText(f"{onboard_count} / 14")
+        self.val_phase.setText(getattr(self.boarding, "trip_phase", "PICKUP"))
+
+    # MQTT Callbacks
+    def _handle_driver_login_ack(self, data):
+        res = data.get("result", 0)
+        if res == 1:
+            name = data.get("full_name", "Tài xế")
+            driver_id = data.get("driver_id", "DR_001")
+            self.uart.send_frame(0x01, 0x01, driver_id.encode("ascii"))
+            self.session.process_driver_login(driver_id, name)
+            self.stack.setCurrentIndex(1)
+            self.update_status_labels()
+        else:
+            self.uart.send_frame(0x01, 0x02)
+            self.login_error_toast.setText("LOGIN FAILED - Không khớp khuôn mặt")
+            self.login_error_toast.show()
+
+    def _handle_vehicle_status_ack(self, data):
+        session_state = data.get("session_state", 0)
+        set_badge_active(self.frame_db, self.badge_db, is_active=True, text="DB: CONNECTED")
+        
+        if session_state == 1:
+            driver_name = data.get("existing_driver_name", "Tài xế cũ")
+            dlg = SessionCheckDialog(driver_name, self)
+            dlg.exec_()
+        elif session_state == 2:
+            driver_id = data.get("driver_id")
+            name = data.get("driver_full_name")
+            self.session.process_driver_login(driver_id, name)
+            self.stack.setCurrentIndex(1)
+            self.update_status_labels()
+        elif session_state == 3:
+            self.session.process_driver_logout()
+            self.stack.setCurrentIndex(0)
+            self.update_status_labels()
+            QMessageBox.warning(self, "Thông báo từ Trung tâm", "Phiên làm việc đã bị Trung tâm Quản lý hủy bỏ. Vui lòng Đăng nhập lại.")
+
+    def _handle_student_scan_ack(self, data):
+        next_id = data.get("next_student_id")
+        next_name = data.get("next_student_name", "---")
+        next_addr = data.get("next_address", "---")
+        self.dest_title_lbl.setText(f"ĐIỂM ĐẾN: {next_name} – {next_addr}")
+        
+        if next_id is None:
+            phase = getattr(self.boarding, "trip_phase", "PICKUP")
+            if phase == "PICKUP":
+                self.uart.send_frame(0x05, 0x03)
+            elif phase == "DROPOFF":
+                self.uart.send_frame(0x05, 0x04)
+
+    def _handle_driver_logout_ack(self, data): pass
+    def _handle_attendant_login_ack(self, data): pass
+    def _handle_attendant_logout_ack(self, data): pass
+
     def _handle_server_command(self, data):
         action = data.get("action")
         if action == "start_stream":
