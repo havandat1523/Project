@@ -1067,16 +1067,34 @@ class BusMonitoringApp(QMainWindow):
             elif phase == "DROPOFF":
                 self.uart.send_frame(0x05, 0x04)
 
+    def _handle_attendant_login_ack(self, data):
+        res = data.get("result", 0)
+        if res == 1:
+            name = data.get("full_name", "Phụ xe")
+            attendant_id = data.get("attendant_id", "PX001")
+            rfid = data.get("rfid_code", "")
+            self.uart.send_frame(0x03, 0x01, attendant_id.encode("ascii"))
+            self.session.process_attendant_login(attendant_id, name, rfid)
+            self.update_status_labels()
+        else:
+            self.uart.send_frame(0x03, 0x02)
+
+    def _handle_attendant_logout_ack(self, data):
+        res = data.get("result", 0)
+        if res == 1:
+            self.uart.send_frame(0x04, 0x01)
+            self.session.process_attendant_logout()
+            self.update_status_labels()
+        else:
+            self.uart.send_frame(0x04, 0x02)
+
     def _handle_driver_logout_ack(self, data): pass
-    def _handle_attendant_login_ack(self, data): pass
-    def _handle_attendant_logout_ack(self, data): pass
 
     def _handle_server_command(self, data):
         action = data.get("action")
         if action == "start_stream":
-            host = data.get("stream_host", "192.168.137.1")
-            port = data.get("stream_port", 8554)
-            url = self.camera.start_streaming(host, port)
+            port = data.get("stream_port", 8080)
+            url = self.camera.start_streaming(port=port)
             status = "active" if url else "inactive"
             self.mqtt.publish_message(20, {
                 "action": "stream_status",

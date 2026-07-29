@@ -270,72 +270,77 @@ class CameraService(QThread):
                 break
         logger.info("Streaming background worker finished.")
 
-    def start_streaming(self, host, port):
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
+
+class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
+
+class MJPEGStreamHandler(BaseHTTPRequestHandler):
+    camera_service = None
+    
+    def do_GET(self):
+        if self.path in ('/video_feed', '/'):
+            self.send_response(200)
+            self.send_header('Content-type', 'multipart/x-mixed-replace; boundary=frame')
+            self.end_headers()
+            while MJPEGStreamHandler.camera_service and MJPEGStreamHandler.camera_service.is_streaming:
+                frame = MJPEGStreamHandler.camera_service.get_latest_frame()
+                if frame is not None:
+                    ret, jpeg = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+                    if ret:
+                        try:
+                            self.wfile.write(b'--frame\r\n')
+                            self.send_header('Content-type', 'image/jpeg')
+                            self.send_header('Content-length', len(jpeg))
+                            self.end_headers()
+                            self.wfile.write(jpeg.tobytes())
+                            self.wfile.write(b'\r\n')
+                        except Exception:
+                            break
+                time.sleep(0.05)
+        else:
+            self.send_error(404)
+            
+    def log_message(self, format, *args):
+        pass
+
+    def start_streaming(self, port=8080):
         if self.is_streaming:
             self.stop_streaming()
             
-        self.stream_host = host
-        self.stream_port = port
-        rtsp_url = f"rtsp://{host}:{port}/picam"
-        
-        cmd = [
-            'ffmpeg',
-            '-y',
-            '-f', 'rawvideo',
-            '-vcodec', 'rawvideo',
-            '-pix_fmt', 'bgr24',
-            '-s', '640x480',
-            '-r', '15',
-            '-i', '-',
-            '-vcodec', 'libx264',
-            '-pix_fmt', 'yuv420p',
-            '-preset', 'ultrafast',
-            '-tune', 'zerolatency',
-            '-f', 'rtsp',
-            rtsp_url
-        ]
-        
         try:
-            while not self.stream_queue.empty():
-                try:
-                    self.stream_queue.get_nowait()
-                except queue.Empty:
-                    break
-
-            # Launch FFmpeg process with stdout/stderr redirected to DEVNULL to prevent blocking pipe
-            self.streaming_process = subprocess.Popen(
-                cmd, 
-                stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
+            MJPEGStreamHandler.camera_service = self
+            self.http_server = ThreadedHTTPServer(('0.0.0.0', port), MJPEGStreamHandler)
             self.is_streaming = True
             
-            # Launch background streaming worker thread so camera thread NEVER blocks
-            self.stream_thread = threading.Thread(target=self._stream_worker_loop, daemon=True)
-            self.stream_thread.start()
-
-            logger.info("Started RTSP streaming to: %s", rtsp_url)
-            return rtsp_url
+            self.server_thread = threading.Thread(target=self.http_server.serve_forever, daemon=True)
+            self.server_thread.start()
+            
+            stream_url = f"http://192.168.137.103:{port}/video_feed"
+            logger.info("Started HTTP MJPEG video stream on %s", stream_url)
+            return stream_url
         except Exception as e:
-            logger.error("Failed to start FFmpeg subprocess: %s", e)
+            logger.error("Failed to start HTTP video stream: %s", e)
             self.is_streaming = False
-            self.streaming_process = None
             return None
 
     def stop_streaming(self):
         self.is_streaming = False
-        if self.streaming_process:
-            logger.info("Stopping RTSP streaming process...")
+        if hasattr(self, "http_server") and self.http_server:
             try:
-                if self.streaming_process.stdin:
-                    self.streaming_process.stdin.close()
-                self.streaming_process.terminate()
-                self.streaming_process.wait(timeout=2)
-            except Exception as e:
-                logger.error("Error stopping streaming subprocess: %s", e)
-            self.streaming_process = None
-        self.is_streaming = False
+                self.http_server.shutdown()
+                self.http_server.server_close()
+            except Exception:
+                pass
+            self.http_server = None
+        logger.info("HTTP video stream stopped.")
+
+    def get_latest_frame(self):
+        with self.lock:
+            if self.latest_frame is not None:
+                return self.latest_frame.copy()
+            return None
 
     def capture_face_vector(self):
         """
