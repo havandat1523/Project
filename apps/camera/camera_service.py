@@ -305,10 +305,44 @@ class MJPEGStreamHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-    def start_streaming(self, port=8080):
+    def start_streaming(self, protocol="http", host="192.168.137.1", port=8080):
         if self.is_streaming:
             self.stop_streaming()
             
+        if protocol in ("rtp", "rtsp"):
+            rtp_url = f"rtsp://{host}:{port}/live/bus_cam" if protocol == "rtsp" else f"rtp://{host}:{port}"
+            cmd = [
+                'ffmpeg',
+                '-y',
+                '-f', 'rawvideo',
+                '-vcodec', 'rawvideo',
+                '-pix_fmt', 'bgr24',
+                '-s', '640x480',
+                '-r', '15',
+                '-i', '-',
+                '-vcodec', 'libx264',
+                '-pix_fmt', 'yuv420p',
+                '-preset', 'ultrafast',
+                '-tune', 'zerolatency',
+                '-f', 'rtsp' if protocol == "rtsp" else 'rtp',
+                rtp_url
+            ]
+            try:
+                self.streaming_process = subprocess.Popen(
+                    cmd, 
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                self.is_streaming = True
+                self.stream_thread = threading.Thread(target=self._stream_worker_loop, daemon=True)
+                self.stream_thread.start()
+                logger.info("Started %s (RTP/H264) video stream to %s", protocol.upper(), rtp_url)
+                return rtp_url
+            except Exception as e:
+                logger.error("Failed to start %s FFmpeg stream: %s. Falling back to HTTP stream...", protocol.upper(), e)
+
+        # HTTP Stream Default / Fallback
         try:
             MJPEGStreamHandler.camera_service = self
             self.http_server = ThreadedHTTPServer(('0.0.0.0', port), MJPEGStreamHandler)
@@ -327,6 +361,16 @@ class MJPEGStreamHandler(BaseHTTPRequestHandler):
 
     def stop_streaming(self):
         self.is_streaming = False
+        if hasattr(self, "streaming_process") and self.streaming_process:
+            try:
+                if self.streaming_process.stdin:
+                    self.streaming_process.stdin.close()
+                self.streaming_process.terminate()
+                self.streaming_process.wait(timeout=2)
+            except Exception:
+                pass
+            self.streaming_process = None
+
         if hasattr(self, "http_server") and self.http_server:
             try:
                 self.http_server.shutdown()
@@ -334,7 +378,7 @@ class MJPEGStreamHandler(BaseHTTPRequestHandler):
             except Exception:
                 pass
             self.http_server = None
-        logger.info("HTTP video stream stopped.")
+        logger.info("Video stream stopped.")
 
     def get_latest_frame(self):
         with self.lock:
