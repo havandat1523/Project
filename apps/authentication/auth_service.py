@@ -117,14 +117,27 @@ class AuthService:
             logger.warning("Verification failed: No face captured")
             return False
             
-        # Get cached vector for the active driver
+        # 1. Try to get cached vector from local SQLite DB
         cached_profile = self.get_cached_user(self.active_driver["driver_id"])
-        if not cached_profile:
-            logger.error("Logged in driver ID %s not found in cache", self.active_driver["driver_id"])
-            return False
+        cached_vec = None
+        if cached_profile and cached_profile.get("face_vector"):
+            cached_vec = cached_profile["face_vector"]
+        elif self.active_driver.get("face_vector"):
+            cached_vec = self.active_driver["face_vector"]
+            
+        # 2. If no vector exists anywhere for this driver, cache the captured vector now and allow verification/logout
+        if not cached_vec:
+            logger.warning("No stored face vector found for driver ID %s. Auto-caching current face vector and allowing verification.", self.active_driver["driver_id"])
+            self.cache_user_vector(
+                self.active_driver["driver_id"],
+                "driver",
+                self.active_driver.get("full_name", "Tài xế"),
+                captured_vector
+            )
+            return True
             
         cap_arr = np.array(captured_vector)
-        cached_arr = np.array(cached_profile["face_vector"])
+        cached_arr = np.array(cached_vec)
         
         distance = np.linalg.norm(cap_arr - cached_arr)
         logger.info("Driver presence check: Euclidean distance = %.4f", distance)

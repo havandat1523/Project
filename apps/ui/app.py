@@ -1087,7 +1087,12 @@ class BusMonitoringApp(QMainWindow):
             name = data.get("full_name", "Tài xế")
             driver_id = data.get("driver_id", "DR_001")
             self.uart.send_frame(0x01, 0x01, driver_id.encode("ascii"))
-            self.session.process_driver_login(driver_id, name)
+            
+            face_vec = getattr(self, "_login_vector", None)
+            if face_vec:
+                self.auth.cache_user_vector(driver_id, "driver", name, face_vec)
+                
+            self.session.process_driver_login(driver_id, name, face_vec)
             self.stack.setCurrentIndex(1)
             self.update_status_labels()
         else:

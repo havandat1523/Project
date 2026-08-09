@@ -28,13 +28,14 @@ class SessionManager:
             
         return True, ""
 
-    def process_driver_login(self, driver_id: str, full_name: str):
+    def process_driver_login(self, driver_id: str, full_name: str, face_vector: list = None):
         """
         Saves the logged in driver profile.
         """
         self.auth.active_driver = {
             "driver_id": driver_id,
-            "full_name": full_name
+            "full_name": full_name,
+            "face_vector": face_vector
         }
         self.auth.mismatch_count = 0
         logger.info("Driver logged in: %s (%s)", full_name, driver_id)
