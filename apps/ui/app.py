@@ -1100,32 +1100,45 @@ class BusMonitoringApp(QMainWindow):
         set_badge_active(self.frame_db, self.badge_db, is_active=True, text="DB: CONNECTED")
         
         if session_state == 1:
-            # Server has an existing session for this vehicle — lock screen and wait for admin decision
-            driver_name = data.get("existing_driver_name", "Tài xế cũ")
+            # Server has existing session — show locked waiting dialog
+            # Avoid opening a second dialog if one is already visible
+            if hasattr(self, "_pending_session_dlg") and self._pending_session_dlg and self._pending_session_dlg.isVisible():
+                return
+            driver_name = data.get("existing_driver_name", data.get("driver_full_name", "Tài xế cũ"))
             self._pending_session_dlg = SessionCheckDialog(driver_name, self)
-            # Non-blocking show: dialog is modal (setModal(True)) but we use show() so Qt loop continues
-            # The dialog will be closed programmatically when session_state 2 or 3 arrives
+            # show() is non-blocking so Qt event loop continues receiving MQTT
             self._pending_session_dlg.show()
 
         elif session_state == 2:
-            # Admin AGREED — close the pending dialog (if open) and log in the driver
-            if hasattr(self, "_pending_session_dlg") and self._pending_session_dlg and self._pending_session_dlg.isVisible():
-                self._pending_session_dlg.server_approved()
+            # Admin AGREED — close waiting dialog and log in driver
+            dlg = getattr(self, "_pending_session_dlg", None)
+            if dlg is not None:
+                try:
+                    dlg.server_approved()
+                except Exception:
+                    dlg.accept()
+                self._pending_session_dlg = None
             driver_id = data.get("driver_id")
-            name = data.get("driver_full_name")
+            name = data.get("driver_full_name", "Tài xế")
             if driver_id:
                 self.session.process_driver_login(driver_id, name)
                 self.stack.setCurrentIndex(1)
                 self.update_status_labels()
 
         elif session_state == 3:
-            # Admin REJECTED — close dialog and force re-login
-            if hasattr(self, "_pending_session_dlg") and self._pending_session_dlg and self._pending_session_dlg.isVisible():
-                self._pending_session_dlg.server_rejected()
+            # Admin REJECTED — close dialog and force re-login screen
+            dlg = getattr(self, "_pending_session_dlg", None)
+            if dlg is not None:
+                try:
+                    dlg.server_rejected()
+                except Exception:
+                    dlg.reject()
+                self._pending_session_dlg = None
             self.session.process_driver_logout()
             self.stack.setCurrentIndex(0)
             self.update_status_labels()
             QMessageBox.warning(self, "Thông báo từ Trung tâm", "Phiên làm việc đã bị Trung tâm Quản lý hủy bỏ. Vui lòng Đăng nhập lại.")
+
 
     def _handle_student_scan_ack(self, data):
         next_id = data.get("next_student_id")
