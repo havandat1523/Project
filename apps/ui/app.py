@@ -184,14 +184,17 @@ class SOSAlertDialog(QDialog):
         """)
         btn.clicked.connect(self.accept)
         c_layout.addWidget(btn)
-# Session Check Pending Confirmation Dialog
+        main_layout.addWidget(container)  # FIX: was missing, caused blank dialog & UI freeze
+# Session Check Pending Confirmation Dialog - LOCKED until server responds
 class SessionCheckDialog(QDialog):
     def __init__(self, driver_name="Tài xế", parent=None):
         super().__init__(parent)
         self.setWindowTitle("XÁC NHẬN PHIÊN LÀM VIỆC")
-        self.setFixedSize(500, 260)
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
+        self.setFixedSize(520, 280)
+        # Remove close button, make it stay on top and modal
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setModal(True)  # Block all other input until server responds
         
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(15, 15, 15, 15)
@@ -207,26 +210,42 @@ class SessionCheckDialog(QDialog):
         icon_lbl.setAlignment(Qt.AlignCenter)
         c_layout.addWidget(icon_lbl)
         
-        title = QLabel("ĐANG KIỂM TRA PHIÊN LÀM VIỆC")
+        title = QLabel("ĐANG CHỜ TRUNG TÂM QUẢN LÝ DUYỆT")
         title.setFont(QFont("Arial", 14, QFont.Bold))
         title.setStyleSheet("color: #ea580c; border: none; margin-bottom: 5px;")
         title.setAlignment(Qt.AlignCenter)
         c_layout.addWidget(title)
         
-        msg = QLabel(f"Tài xế: {driver_name}\nĐang chờ Trung tâm Quản lý duyệt phiên làm việc (Agree / Disagree)...")
+        msg = QLabel(f"Tài xế: {driver_name}\nVui lòng chờ Trung tâm Quản lý xác nhận phiên làm việc cũ.\n(Agree = Tiếp tục  |  Disagree = Đăng nhập lại)")
         msg.setFont(QFont("Arial", 11))
         msg.setStyleSheet("color: #475569; border: none;")
         msg.setAlignment(Qt.AlignCenter)
         msg.setWordWrap(True)
         c_layout.addWidget(msg)
-        
-        btn = QPushButton("ĐÓNG THÔNG BÁO")
-        btn.setFont(QFont("Arial", 11, QFont.Bold))
-        btn.setStyleSheet("background-color: #ea580c; color: white; border: none; padding: 10px 20px; border-radius: 8px; margin-top: 10px;")
-        btn.clicked.connect(self.accept)
-        c_layout.addWidget(btn, alignment=Qt.AlignCenter)
+
+        # Spinner/status label — updated by server response
+        self.status_lbl = QLabel("● Đang chờ phản hồi từ Server...")
+        self.status_lbl.setFont(QFont("Arial", 10))
+        self.status_lbl.setStyleSheet("color: #94a3b8; border: none; margin-top: 8px;")
+        self.status_lbl.setAlignment(Qt.AlignCenter)
+        c_layout.addWidget(self.status_lbl)
+
+        # NOTE: No close/dismiss button — driver CANNOT close this dialog manually
+        # It will be closed by _handle_vehicle_status_ack when server sends session_state=2 or 3
         
         main_layout.addWidget(container)
+
+    def server_approved(self):
+        """Called when server sends session_state=2 (Agree) — auto-close"""
+        self.status_lbl.setText("✓ Trung tâm đã ĐỒNG Ý — Đang đăng nhập...")
+        self.status_lbl.setStyleSheet("color: #16a34a; border: none; font-weight: bold; margin-top: 8px;")
+        QTimer.singleShot(800, self.accept)
+
+    def server_rejected(self):
+        """Called when server sends session_state=3 (Disagree) — auto-close"""
+        self.status_lbl.setText("✕ Trung tâm đã TỪ CHỐI — Vui lòng đăng nhập lại.")
+        self.status_lbl.setStyleSheet("color: #dc2626; border: none; font-weight: bold; margin-top: 8px;")
+        QTimer.singleShot(1200, self.reject)
 
 # Custom Dialog Popup for Driver Logout with Camera Frame Alignment (Slide 11 design_do_an.pdf)
 class DriverLogoutDialog(QDialog):
@@ -1081,16 +1100,28 @@ class BusMonitoringApp(QMainWindow):
         set_badge_active(self.frame_db, self.badge_db, is_active=True, text="DB: CONNECTED")
         
         if session_state == 1:
+            # Server has an existing session for this vehicle — lock screen and wait for admin decision
             driver_name = data.get("existing_driver_name", "Tài xế cũ")
-            dlg = SessionCheckDialog(driver_name, self)
-            dlg.exec_()
+            self._pending_session_dlg = SessionCheckDialog(driver_name, self)
+            # Non-blocking show: dialog is modal (setModal(True)) but we use show() so Qt loop continues
+            # The dialog will be closed programmatically when session_state 2 or 3 arrives
+            self._pending_session_dlg.show()
+
         elif session_state == 2:
+            # Admin AGREED — close the pending dialog (if open) and log in the driver
+            if hasattr(self, "_pending_session_dlg") and self._pending_session_dlg and self._pending_session_dlg.isVisible():
+                self._pending_session_dlg.server_approved()
             driver_id = data.get("driver_id")
             name = data.get("driver_full_name")
-            self.session.process_driver_login(driver_id, name)
-            self.stack.setCurrentIndex(1)
-            self.update_status_labels()
+            if driver_id:
+                self.session.process_driver_login(driver_id, name)
+                self.stack.setCurrentIndex(1)
+                self.update_status_labels()
+
         elif session_state == 3:
+            # Admin REJECTED — close dialog and force re-login
+            if hasattr(self, "_pending_session_dlg") and self._pending_session_dlg and self._pending_session_dlg.isVisible():
+                self._pending_session_dlg.server_rejected()
             self.session.process_driver_logout()
             self.stack.setCurrentIndex(0)
             self.update_status_labels()
