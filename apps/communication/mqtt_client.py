@@ -77,7 +77,7 @@ class MQTTClient:
             self.is_connected = True
             logger.info("Connected to MQTT Broker successfully!")
             
-            base_topic = f"schoolbus/{config.VEHICLE_ID}"
+            base_topic = f"HaVanDat0105/{config.VEHICLE_ID}"
             self.client.subscribe(f"{base_topic}/driver/+/ack")
             self.client.subscribe(f"{base_topic}/attendant/+/ack")
             self.client.subscribe(f"{base_topic}/student/+/ack")
@@ -158,7 +158,7 @@ class MQTTClient:
         # We are online, sign envelope and publish directly
         envelope = sign_payload(msg_type, data)
         sub_topic = self.topic_map.get(msg_type, "system/unknown")
-        full_topic = f"schoolbus/{config.VEHICLE_ID}/{sub_topic}"
+        full_topic = f"HaVanDat0105/{config.VEHICLE_ID}/{sub_topic}"
         
         # QoS level selection
         qos = 1
@@ -195,7 +195,7 @@ class MQTTClient:
                         payload["data"]["is_replay"] = True
                         
                         sub_topic = self.topic_map.get(msg["type"], "system/unknown")
-                        full_topic = f"schoolbus/{config.VEHICLE_ID}/{sub_topic}"
+                        full_topic = f"HaVanDat0105/{config.VEHICLE_ID}/{sub_topic}"
                         
                         qos = 1
                         if msg["type"] in (15, 16):
