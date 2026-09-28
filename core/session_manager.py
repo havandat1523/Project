@@ -12,19 +12,39 @@ class SessionManager:
     def set_student_count(self, count: int):
         self.students_onboard = count
 
-    def can_driver_logout(self) -> tuple:
+    def can_attendant_logout(self, student_count: int = 0) -> tuple:
+        """
+        Validates if the attendant is allowed to logout.
+        Rule: Attendant can ONLY logout when NO students are left on board (all reached school or home).
+        Returns (bool, reason_string).
+        """
+        if not self.auth.active_attendant:
+            return False, "Không có phụ xe nào đang đăng nhập."
+            
+        effective_students = max(self.students_onboard, student_count)
+        if effective_students > 0:
+            return False, f"Vẫn còn {effective_students} học sinh trên xe! Phụ xe phải đợi tất cả học sinh xuống xe hết (đến trường hoặc về nhà) mới được đăng xuất."
+            
+        return True, ""
+
+    def can_driver_logout(self, student_count: int = 0) -> tuple:
         """
         Validates if the driver is allowed to logout.
+        Rule:
+        1. Driver can only logout AFTER attendant has logged out.
+        2. Driver can only logout when NO students are on board.
         Returns (bool, reason_string).
         """
         if not self.auth.active_driver:
             return False, "Không có tài xế nào đang đăng nhập."
             
         if self.auth.active_attendant:
-            return False, "Phụ xe phải đăng xuất trước khi tài xế đăng xuất."
+            att_name = self.auth.active_attendant.get("full_name", "Phụ xe")
+            return False, f"Phụ xe ({att_name}) vẫn còn trên xe! Phụ xe phải đăng xuất trước khi tài xế đăng xuất."
             
-        if self.students_onboard > 0:
-            return False, f"Vẫn còn {self.students_onboard} học sinh trên xe!"
+        effective_students = max(self.students_onboard, student_count)
+        if effective_students > 0:
+            return False, f"Vẫn còn {effective_students} học sinh trên xe! Tài xế không thể đăng xuất."
             
         return True, ""
 
@@ -54,22 +74,23 @@ class SessionManager:
             # Play 02/001 (driver logout success)
             self.uart.send_frame(0x02, 0x01)
 
-    def process_attendant_login(self, attendant_id: str, full_name: str):
+    def process_attendant_login(self, attendant_id: str, full_name: str, rfid: str = ""):
         """
         Saves the logged in attendant profile.
         """
         self.auth.active_attendant = {
             "attendant_id": attendant_id,
-            "full_name": full_name
+            "full_name": full_name,
+            "rfid_code": rfid
         }
         self.auth.absence_count = 0
-        logger.info("Attendant logged in: %s (%s)", full_name, attendant_id)
+        logger.info("Attendant logged in: %s (%s, RFID: %s)", full_name, attendant_id, rfid)
         
         # Check if students are already onboard (attendant logging in late is warned by 06/002)
         if self.students_onboard > 0:
             self.uart.send_frame(0x06, 0x02) # Phụ xe check-in sau khi đã có học sinh trên xe
         else:
-            self.uart.send_frame(0x03, 0x01) # Phụ xe login thành công
+            self.uart.send_frame(0x03, 0x01, attendant_id.encode("ascii")) # Phụ xe login thành công
 
     def process_attendant_logout(self):
         """

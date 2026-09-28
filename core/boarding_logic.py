@@ -18,6 +18,7 @@ class BoardingLogic:
         # State
         self.at_school = False
         self.trip_phase = "PICKUP"  # "PICKUP" (morning home route), "ARRIVE_SCHOOL", "DEPART_SCHOOL", "DROPOFF" (afternoon route)
+        self.is_last_student_picked = False
         
         # Tracking student lists
         self.students_onboard = {}  # {rfid: seat_num}
@@ -29,6 +30,11 @@ class BoardingLogic:
         
         # Last known seats
         self.current_seats = {}
+
+    def set_last_student_picked(self, val: bool):
+        self.is_last_student_picked = val
+        logger.info("is_last_student_picked updated to: %s", val)
+
 
     def calculate_distance(self, lat1, lon1, lat2, lon2) -> float:
         """
@@ -137,8 +143,47 @@ class BoardingLogic:
 
     def handle_rfid_scan(self, rfid: str):
         """
-        Associates scanned RFID card with the seat that was occupied most recently.
+        Handles RFID scan for students. Supports:
+        1. Student alighting (Xuống xe khi về tới nhà trong chiều trả hoặc xuống xe):
+           If student is already onboard, remove mapping and notify server/speaker.
+        2. Student boarding (Lên xe trong chiều đón):
+           Map student to available seat, track headcount.
         """
+        phase_map = {"PICKUP": 1, "ARRIVE_SCHOOL": 2, "DEPART_SCHOOL": 3, "DROPOFF": 4}
+        phase_num = phase_map.get(self.trip_phase, 1)
+
+        # TRƯỜNG HỢP 1: HỌC SINH ĐÃ CÓ TRÊN XE -> QUẸT THẺ XUỐNG XE (ALIGHT / VỀ NHÀ)
+        if rfid in self.students_onboard:
+            seat_val = self.students_onboard.pop(rfid, None)
+            if seat_val is not None and str(seat_val) in self.seat_student_map:
+                del self.seat_student_map[str(seat_val)]
+                
+            remaining = len(self.students_onboard)
+            logger.info("Student %s alighted from seat %s (Remaining students onboard: %d)", rfid, seat_val, remaining)
+            
+            # Publish student scan event (alight)
+            self.mqtt.publish_message(11, {
+                "rfid_code": rfid,
+                "seat_number": seat_val if seat_val else 0,
+                "trip_phase": phase_num,
+                "action": "alight"
+            }, priority=1)
+            
+            # Play 05/001: Quẹt thẻ thành công
+            self.uart.send_frame(0x05, 0x01)
+            
+            # Nếu tất cả học sinh đã xuống xe hết:
+            if remaining == 0:
+                logger.info("All students have alighted! Triggering last student reminder 05/004...")
+                # 05/004: "Học sinh cuối cùng đã xuống xe, bác tài và phụ xe vui lòng kiểm tra lại xe trước khi kết thúc chuyến"
+                self.uart.send_frame(0x05, 0x04)
+                self.mqtt.publish_message(12, {
+                    "event_code": 504,
+                    "students_onboard": 0
+                }, priority=1)
+            return
+
+        # TRƯỜNG HỢP 2: HỌC SINH MỚI LÊN XE (BOARDING / CHIỀU ĐÓN)
         # Find a seat (3-16) that is occupied but has no student mapped to it
         unmapped_seat = None
         for i in range(3, 17):
@@ -147,25 +192,32 @@ class BoardingLogic:
                 unmapped_seat = i
                 break
                 
-        # Fallback to a default if all mapped (e.g. child scanning again or scan before sitting)
+        # Fallback to a default if all mapped (e.g. child scanning before sitting)
         seat_num_val = unmapped_seat if unmapped_seat is not None else 0
         
-        phase_map = {"PICKUP": 1, "ARRIVE_SCHOOL": 2, "DEPART_SCHOOL": 3, "DROPOFF": 4}
-        phase_num = phase_map.get(self.trip_phase, 1)
-        
-        # Publish student scan event (type 11)
-        # Server verifies if RFID is active and responds
-        logger.info("Student RFID scanned: %s on seat %d (Phase: %s)", rfid, seat_num_val, self.trip_phase)
+        logger.info("Student RFID boarding: %s on seat %d (Phase: %s)", rfid, seat_num_val, self.trip_phase)
         self.mqtt.publish_message(11, {
             "rfid_code": rfid,
             "seat_number": seat_num_val,
-            "trip_phase": phase_num
+            "trip_phase": phase_num,
+            "action": "board"
         }, priority=1)
         
-        # Temporarily save mapping locally (will be overridden on Server ack)
+        # Save mapping locally
         if seat_num_val > 0:
             self.students_onboard[rfid] = seat_num_val
             self.seat_student_map[str(seat_num_val)] = rfid
+            
+        # Play 05/001: Quẹt thẻ lên xe thành công
+        self.uart.send_frame(0x05, 0x01)
+        
+        # Nếu là học sinh cuối cùng chiều đón:
+        if self.is_last_student_picked:
+            self.uart.send_frame(0x05, 0x03) # 05/003: Học sinh cuối cùng đã lên xe (chiều đón)
+            self.mqtt.publish_message(12, {
+                "event_code": 503,
+                "students_onboard": len(self.students_onboard)
+            }, priority=1)
 
     def check_bulk_alight(self, seats: dict):
         """

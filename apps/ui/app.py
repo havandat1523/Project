@@ -774,12 +774,27 @@ class BusMonitoringApp(QMainWindow):
                         iconSize: [40, 40], iconAnchor: [20, 20]
                     }});
                     var marker = L.marker([21.003118, 105.845899], {{icon: busIcon}}).addTo(map);
+                    var routePolyline = null;
                     
                     function updateMapLocation(lat, lon, speed) {{
                         if (!lat || !lon) return;
                         var newLatLng = new L.LatLng(lat, lon);
                         marker.setLatLng(newLatLng);
                         map.panTo(newLatLng);
+                    }}
+
+                    function updateRouteGeometry(coords) {{
+                        if (!coords || coords.length < 2) return;
+                        var latlngs = coords.map(function(c) {{ return [c[1], c[0]]; }});
+                        if (routePolyline) {{
+                            routePolyline.setLatLngs(latlngs);
+                        }} else {{
+                            routePolyline = L.polyline(latlngs, {{
+                                color: '#ea580c',
+                                weight: 5,
+                                opacity: 0.85
+                            }}).addTo(map);
+                        }}
                     }}
                 </script>
             </body>
@@ -908,6 +923,10 @@ class BusMonitoringApp(QMainWindow):
         self.uart.sos_received.connect(self.on_sos_received)
         self.uart.dht11_received.connect(self.on_dht11_received)
         self.uart.gps_received.connect(self.on_gps_received)
+        self.uart.connection_status.connect(self.on_uart_connection_status)
+        # Emit initial default GNSS location at bootup (School geofence lat/lon) to avoid empty UI/Map state
+        self.on_gps_received(config.SCHOOL_GEOFENCE_LAT, config.SCHOOL_GEOFENCE_LON, 0.0)
+
 
     @pyqtSlot(QImage)
     def update_camera_frame(self, q_img):
@@ -949,13 +968,30 @@ class BusMonitoringApp(QMainWindow):
             )
             self.video_label.setPixmap(pix)
 
+    @pyqtSlot(bool)
+    def on_uart_connection_status(self, connected: bool):
+        """Cập nhật badge DB (STM32) trên header khi UART kết nối / mất kết nối."""
+        if connected:
+            set_badge_active(self.frame_db, self.badge_db, is_active=True, text="STM32: OK")
+        else:
+            set_badge_active(self.frame_db, self.badge_db, is_active=False, text="STM32: OFFLINE")
+
     @pyqtSlot(dict)
     def on_seats_received(self, seats_dict):
+
         processed = self.debouncer.update(seats_dict)
         if processed:
             self.latest_seats_state = processed
             self.boarding.update_seats(processed)
             self.update_seats_ui(processed)
+            
+            # Đồng bộ số ghế học sinh đang ngồi vào session_manager
+            onboard_count = sum(1 for i in range(3, 17) if processed.get(str(i), 0) == 1)
+            self.session.set_student_count(onboard_count)
+            self.update_status_labels()
+
+            # Gửi trạng thái ghế lên Server (type=13: seat/status)
+            self.mqtt.publish_message(13, {"seats": processed}, priority=0)
 
     def update_seats_ui(self, seats_dict):
         for seat_num, status in seats_dict.items():
@@ -972,21 +1008,80 @@ class BusMonitoringApp(QMainWindow):
 
     @pyqtSlot(str)
     def on_rfid_received(self, rfid_uid):
-        self.log(f"RFID quẹt: {rfid_uid}")
-        if self.auth.active_driver and not self.auth.active_attendant:
-            self.mqtt.publish_message(6, {"rfid_code": rfid_uid}, priority=1)
-        elif self.auth.active_attendant and rfid_uid == self.auth.active_attendant.get("rfid_code"):
-            self.mqtt.publish_message(8, {"rfid_code": rfid_uid}, priority=1)
-        else:
-            self.boarding.handle_rfid_scan(rfid_uid)
+        self.log(f"Quét thẻ RFID (đầu đọc dùng chung): [{rfid_uid}]")
+        
+        # 1. TRƯỜNG HỢP PHỤ XE CHƯA ĐĂNG NHẬP:
+        if self.auth.active_attendant is None:
+            # KIỂM TRA THỨ TỰ: Tài xế bắt buộc phải đăng nhập trước khi phụ xe đăng nhập!
+            if self.auth.active_driver is None:
+                self.log(f"-> TỪ CHỐI ĐĂNG NHẬP PHỤ XE: Tài xế chưa đăng nhập! (Thẻ: [{rfid_uid}])")
+                self.uart.send_frame(0x03, 0x02) # Phụ xe login thất bại
+                dlg = CannotLogoutDialog("Tài xế bắt buộc phải đăng nhập trước khi phụ xe đăng nhập!", self)
+                dlg.setWindowTitle("YÊU CẦU THỨ TỰ ĐĂNG NHẬP")
+                dlg.exec_()
+                return
+
+            self.log(f"-> Phụ xe chưa lên xe: Quẹt thẻ [{rfid_uid}] để đăng nhập phụ xe.")
+            if self.mqtt.is_connected:
+                # Gửi yêu cầu đăng nhập phụ xe lên Server (MQTT type 6)
+                self.mqtt.publish_message(6, {
+                    "rfid_code": rfid_uid
+                }, priority=1)
+            else:
+                # Fallback chế độ ngoại tuyến / chạy mô phỏng không cần Server
+                logger.info("Chế độ Offline: Tự động xác thực đăng nhập phụ xe với thẻ %s", rfid_uid)
+                att_id = "PX" + rfid_uid[-4:]
+                att_name = f"Phụ xe ({rfid_uid[-4:]})"
+                self.session.process_attendant_login(att_id, att_name, rfid_uid)
+                self.update_status_labels()
+                self.log(f"-> Phụ xe đăng nhập thành công (Offline): {att_name} [{att_id}]")
+            return
+
+        # 2. TRƯỜNG HỢP PHỤ XE ĐÃ ĐĂNG NHẬP:
+        active_rfid = self.auth.active_attendant.get("rfid_code", "")
+        # Nếu phụ xe quẹt lại chính thẻ của mình -> YÊU CẦU ĐĂNG XUẤT (Logout)
+        if active_rfid and active_rfid == rfid_uid:
+            # KIỂM TRA ĐIỀU KIỆN ĐĂNG XUẤT PHỤ XE: Phải không còn học sinh nào trên xe!
+            occupied_seats = sum(1 for i in range(3, 17) if self.latest_seats_state.get(str(i), 0) == 1)
+            rfid_students = len(self.boarding.students_onboard)
+            current_students = max(occupied_seats, rfid_students, self.session.students_onboard)
+            
+            can_logout, reason = self.session.can_attendant_logout(current_students)
+            if not can_logout:
+                self.log(f"-> TỪ CHỐI ĐĂNG XUẤT PHỤ XE: {reason}")
+                self.uart.send_frame(0x04, 0x02) # Phụ xe logout thất bại
+                dlg = CannotLogoutDialog(reason, self)
+                dlg.setWindowTitle("KHÔNG THỂ ĐĂNG XUẤT PHỤ XE")
+                dlg.exec_()
+                return
+
+            self.log(f"-> Tất cả học sinh đã xuống xe hết: Phụ xe quẹt lại thẻ [{rfid_uid}] thực hiện đăng xuất.")
+            if self.mqtt.is_connected:
+                self.mqtt.publish_message(8, {
+                    "attendant_id": self.auth.active_attendant.get("attendant_id", ""),
+                    "rfid_code": rfid_uid
+                }, priority=1)
+            else:
+                self.session.process_attendant_logout()
+                self.update_status_labels()
+                self.log("-> Phụ xe đã đăng xuất thành công (Offline).")
+            return
+
+        # 3. NẾU KHÔNG PHẢI THẺ PHỤ XE -> ĐÂY LÀ THẺ HỌC SINH (LÊN HOẶC XUỐNG XE):
+        self.log(f"-> Phụ xe đã có mặt trên xe: Quét thẻ học sinh [{rfid_uid}].")
+        self.boarding.handle_rfid_scan(rfid_uid)
+        self.update_status_labels()
 
     @pyqtSlot()
     def on_sos_received(self):
+        self.log("🚨 CẢNH BÁO SOS: Nút khẩn cấp vật lý trên xe vừa được nhấn kích hoạt!")
         self.sos_click()
 
     @pyqtSlot(float, float, float)
     def on_gps_received(self, lat, lon, speed):
         self.current_speed = speed
+        self.latest_lat = lat
+        self.latest_lon = lon
         self.speed_lbl.setText(f"{speed:.1f} Km/h")
         set_badge_active(self.frame_gnss, self.badge_gnss, is_active=True, text="GNSS: ACTIVE")
         self.boarding.update_gps(lat, lon, speed)
@@ -995,6 +1090,17 @@ class BusMonitoringApp(QMainWindow):
                 self.map_view.set_location(lat, lon, speed)
             elif WEB_ENGINE_AVAILABLE:
                 self.map_view.page().runJavaScript(f"updateMapLocation({lat:.6f}, {lon:.6f}, {speed:.1f});")
+
+        # Gửi telemetry lên Server (type=14: telemetry)
+        onboard_count = sum(1 for i in range(3, 17) if self.latest_seats_state.get(str(i), 0) == 1)
+        self.mqtt.publish_message(14, {
+            "lat": lat,
+            "lon": lon,
+            "speed_kmh": speed,
+            "students_onboard": onboard_count,
+            "temperature": getattr(self, "latest_temp", 0.0),
+            "humidity": getattr(self, "latest_humid", 0.0)
+        }, priority=0)
 
     @pyqtSlot(float, float)
     def on_dht11_received(self, temp, humid):
@@ -1036,23 +1142,39 @@ class BusMonitoringApp(QMainWindow):
             self.login_error_toast.show()
 
     def driver_logout_click(self):
-        can_logout, reason = self.session.can_driver_logout()
+        occupied_seats = sum(1 for i in range(3, 17) if self.latest_seats_state.get(str(i), 0) == 1)
+        rfid_students = len(self.boarding.students_onboard)
+        current_students = max(occupied_seats, rfid_students, self.session.students_onboard)
+        
+        can_logout, reason = self.session.can_driver_logout(current_students)
         if not can_logout:
+            self.uart.send_frame(0x02, 0x02) # Play 02/002: Tài xế logout thất bại
             dlg = CannotLogoutDialog(reason, self)
+            dlg.setWindowTitle("KHÔNG THỂ ĐĂNG XUẤT TÀI XẾ")
             dlg.exec_()
             return
             
         dlg = DriverLogoutDialog(self.camera, self.auth, self)
         if dlg.exec_() == QDialog.Accepted:
-            self.mqtt.publish_message(3, {}, priority=1)
+            if self.mqtt.is_connected:
+                self.mqtt.publish_message(3, {}, priority=1)
             self.session.process_driver_logout()
             self.stack.setCurrentIndex(0)
             self.update_status_labels()
 
     def sos_click(self):
+        self.log("🚨 Kích hoạt SOS: Gửi lệnh phát loa 07/001 & gửi dữ liệu khẩn cấp lên Server.")
         self.uart.send_frame(0x07, 0x01)
-        self.mqtt.publish_message(15, {"lat": 21.0021, "lon": 105.8462, "triggered_by": 1, "seat_number": 1}, priority=2)
-        dlg = SOSAlertDialog(21.0021, 105.8462, self)
+        
+        lat = getattr(self, "latest_lat", 21.0021)
+        lon = getattr(self, "latest_lon", 105.8462)
+        self.mqtt.publish_message(15, {
+            "lat": lat,
+            "lon": lon,
+            "triggered_by": 1,
+            "seat_number": 1
+        }, priority=2)
+        dlg = SOSAlertDialog(lat, lon, self)
         dlg.exec_()
 
     def update_status_labels(self):
@@ -1149,14 +1271,40 @@ class BusMonitoringApp(QMainWindow):
         next_id = data.get("next_student_id")
         next_name = data.get("next_student_name", "---")
         next_addr = data.get("next_address", "---")
-        self.dest_title_lbl.setText(f"ĐIỂM ĐẾN: {next_name} – {next_addr}")
-        
-        if next_id is None:
+        is_last = data.get("is_last_student_picked", False)
+        onboard = data.get("students_onboard")
+        remaining = data.get("students_remaining", 0)
+        route_geom = data.get("next_route_geometry")
+
+        if hasattr(self, "boarding") and self.boarding:
+            self.boarding.set_last_student_picked(is_last)
+
+        if is_last:
+            self.dest_title_lbl.setText("ĐIỂM ĐẾN: TRƯỜNG HỌC (Đang về trường)")
+            # Phát âm thanh thông báo học sinh cuối cùng đã lên xe (Track 05/003)
+            self.uart.send_frame(0x05, 0x03)
+
+        elif next_id:
+            self.dest_title_lbl.setText(f"ĐIỂM ĐẾN: {next_name} – {next_addr}")
+        else:
+            self.dest_title_lbl.setText(f"ĐIỂM ĐẾN: {next_name} – {next_addr}")
             phase = getattr(self.boarding, "trip_phase", "PICKUP")
             if phase == "PICKUP":
                 self.uart.send_frame(0x05, 0x03)
             elif phase == "DROPOFF":
                 self.uart.send_frame(0x05, 0x04)
+
+        if onboard is not None:
+            self.val_students.setText(f"{onboard} / 14")
+
+        # Cập nhật vẽ tuyến đường động lên bản đồ Leaflet
+        if route_geom and WEB_ENGINE_AVAILABLE and hasattr(self, "map_view") and self.map_view:
+            try:
+                geom_json = json.dumps(route_geom)
+                self.map_view.page().runJavaScript(f"updateRouteGeometry({geom_json});")
+            except Exception as e:
+                logger.warning("Failed to render dynamic route geometry on Leaflet: %s", e)
+
 
     def _handle_attendant_login_ack(self, data):
         res = data.get("result", 0)
@@ -1164,20 +1312,22 @@ class BusMonitoringApp(QMainWindow):
             name = data.get("full_name", "Phụ xe")
             attendant_id = data.get("attendant_id", "PX001")
             rfid = data.get("rfid_code", "")
-            self.uart.send_frame(0x03, 0x01, attendant_id.encode("ascii"))
             self.session.process_attendant_login(attendant_id, name, rfid)
             self.update_status_labels()
+            self.log(f"Phụ xe đăng nhập thành công: {name} [{attendant_id}]")
         else:
             self.uart.send_frame(0x03, 0x02)
+            self.log("Phụ xe đăng nhập thất bại (Mã thẻ không hợp lệ)")
 
     def _handle_attendant_logout_ack(self, data):
         res = data.get("result", 0)
         if res == 1:
-            self.uart.send_frame(0x04, 0x01)
             self.session.process_attendant_logout()
             self.update_status_labels()
+            self.log("Phụ xe đã đăng xuất thành công")
         else:
             self.uart.send_frame(0x04, 0x02)
+            self.log("Phụ xe đăng xuất thất bại")
 
     def _handle_driver_logout_ack(self, data): pass
 
